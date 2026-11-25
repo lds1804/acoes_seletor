@@ -5,6 +5,7 @@ import com.lynchscreener.domain.model.LynchCategory
 import com.lynchscreener.domain.model.LynchScore
 import com.lynchscreener.domain.model.ScoreComponent
 import kotlin.math.round
+import kotlin.math.roundToInt
 
 /**
  * Pure, side-effect-free Peter Lynch scoring engine.

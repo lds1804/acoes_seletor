@@ -12,10 +12,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Configurar JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 17
@@ -25,7 +25,7 @@ jobs:
       # e build-tools que faltarem automaticamente.
 
       - name: Configurar Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v5
         with:
           # AGP 8.7.3 requer Gradle 8.9+; sem wrapper, instala esta versão.
           gradle-version: 8.11.1
@@ -34,7 +34,7 @@ jobs:
         run: gradle assembleDebug --no-daemon
 
       - name: Publicar APK como artefato
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: lynch-screener-debug
           path: app/build/outputs/apk/debug/app-debug.apk

@@ -1,70 +1,74 @@
 package com.lynchscreener.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.graphics.Color
 
-private val LightColors = lightColorScheme(
-    primary = TealPrimary,
-    onPrimary = TealOnPrimary,
-    primaryContainer = TealContainer,
-    onPrimaryContainer = TealOnContainer,
-    secondary = SlateSecondary,
-    onSecondary = ColorTokens.White,
-    secondaryContainer = SlateContainer,
-    onSecondaryContainer = SlateOnContainer,
-    tertiary = IndigoTertiary,
-    onTertiary = ColorTokens.White,
-    tertiaryContainer = IndigoContainer,
-    onTertiaryContainer = IndigoOnContainer,
-    error = InkError,
-    background = LightBackground,
-    onBackground = LightOnSurface,
-    surface = LightSurface,
-    onSurface = LightOnSurface,
-    surfaceVariant = LightSurfaceVariant,
-    onSurfaceVariant = LightOnSurfaceVariant,
-    outline = LightOutline,
+private val DarkScheme = darkColorScheme(
+    primary = AccentPrimary,
+    onPrimary = Color(0xFF052E1B),
+    primaryContainer = Color(0xFF0F3D2E),
+    onPrimaryContainer = Color(0xFFA7F3D0),
+    secondary = Color(0xFF3B82F6),
+    onSecondary = Color(0xFF05203D),
+    secondaryContainer = Color(0xFF1E3A5F),
+    onSecondaryContainer = Color(0xFFBFDBFE),
+    tertiary = Color(0xFFF59E0B),
+    onTertiary = Color(0xFF402D00),
+    background = BackgroundDark,
+    onBackground = TextPrimaryDark,
+    surface = SurfaceCardDark,
+    onSurface = TextPrimaryDark,
+    surfaceVariant = SurfaceElevatedDark,
+    onSurfaceVariant = TextSecondaryDark,
+    outline = BorderSubtleDark,
+    outlineVariant = BorderSubtleDark,
+    error = ScorePoor,
+    onError = Color(0xFF450A0A),
 )
 
-private val DarkColors = darkColorScheme(
-    primary = TealPrimaryDark,
-    onPrimary = TealOnPrimaryDark,
-    primaryContainer = TealContainerDark,
-    onPrimaryContainer = TealOnContainerDark,
-    secondary = SlateSecondaryDark,
-    onSecondary = ColorTokens.DarkOnSecondary,
-    secondaryContainer = SlateContainerDark,
-    onSecondaryContainer = SlateOnContainerDark,
-    tertiary = IndigoTertiaryDark,
-    onTertiary = ColorTokens.DarkOnTertiary,
-    tertiaryContainer = IndigoContainerDark,
-    onTertiaryContainer = IndigoOnContainerDark,
-    error = DarkError,
-    background = DarkBackground,
-    onBackground = DarkOnSurface,
-    surface = DarkSurface,
-    onSurface = DarkOnSurface,
-    surfaceVariant = DarkSurfaceVariant,
-    onSurfaceVariant = DarkOnSurfaceVariant,
-    outline = DarkOutline,
+private val LightScheme = lightColorScheme(
+    primary = Color(0xFF059669),
+    onPrimary = Color(0xFFFFFFFF),
+    primaryContainer = Color(0xFFA7F3D0),
+    onPrimaryContainer = Color(0xFF022C22),
+    secondary = Color(0xFF2563EB),
+    onSecondary = Color(0xFFFFFFFF),
+    secondaryContainer = Color(0xFFDBEAFE),
+    onSecondaryContainer = Color(0xFF1E3A8A),
+    tertiary = Color(0xFFD97706),
+    onTertiary = Color(0xFFFFFFFF),
+    background = BackgroundLight,
+    onBackground = TextPrimaryLight,
+    surface = SurfaceCardLight,
+    onSurface = TextPrimaryLight,
+    surfaceVariant = SurfaceElevatedLight,
+    onSurfaceVariant = TextSecondaryLight,
+    outline = BorderSubtleLight,
+    outlineVariant = BorderSubtleLight,
+    error = ScorePoor,
+    onError = Color(0xFFFFFFFF),
 )
 
+/**
+ * Dark mode is the default (fintech/terminal aesthetic). Pass `darkTheme = false`
+ * for the clean light alternative.
+ */
 @Composable
 fun LynchScreenerTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    darkTheme: Boolean = true,
     content: @Composable () -> Unit,
 ) {
-    MaterialTheme(
-        colorScheme = if (darkTheme) DarkColors else LightColors,
-        content = content,
-    )
-}
-
-private object ColorTokens {
-    val White = androidx.compose.ui.graphics.Color(0xFFFFFFFF)
-    val DarkOnSecondary = androidx.compose.ui.graphics.Color(0xFF00363A)
-    val DarkOnTertiary = androidx.compose.ui.graphics.Color(0xFF0A1B3F)
+    val colors = if (darkTheme) DarkLynchColors else LightLynchColors
+    val scheme = if (darkTheme) DarkScheme else LightScheme
+    CompositionLocalProvider(LocalLynchColors provides colors) {
+        MaterialTheme(
+            colorScheme = scheme,
+            typography = LynchTypography,
+            content = content,
+        )
+    }
 }

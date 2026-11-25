@@ -3,10 +3,10 @@ package com.lynchscreener.ui.sync
 import android.app.Application
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.lynchscreener.data.local.entity.AssetEntity
 import com.lynchscreener.data.repository.AssetRepository
 import com.lynchscreener.data.repository.SyncSettings
 import com.lynchscreener.data.repository.SyncSnapshot
+import com.lynchscreener.worker.SyncEventLog
 import com.lynchscreener.worker.SyncMonitor
 import com.lynchscreener.worker.SyncScheduler
 import com.lynchscreener.worker.SyncStatus
@@ -24,7 +24,7 @@ data class SyncUiState(
     val chargingOnly: Boolean = true,
     val snapshot: SyncSnapshot? = null,
     val syncStatus: SyncStatus = SyncStatus(),
-    val errors: List<AssetEntity> = emptyList(),
+    val logLines: List<String> = emptyList(),
 )
 
 class SyncViewModel(
@@ -37,16 +37,20 @@ class SyncViewModel(
     private val wifiOnly = MutableStateFlow(syncSettings.wifiOnly)
     private val chargingOnly = MutableStateFlow(syncSettings.chargingOnly)
     private val snapshot = MutableStateFlow<SyncSnapshot?>(null)
-    private val errors = MutableStateFlow<List<AssetEntity>>(emptyList())
+    private val logLines = MutableStateFlow<List<String>>(emptyList())
 
     val uiState: StateFlow<SyncUiState> =
-        combine(wifiOnly, chargingOnly, snapshot, syncMonitor.status, errors) { w, c, s, status, e ->
-            SyncUiState(wifiOnly = w, chargingOnly = c, snapshot = s, syncStatus = status, errors = e)
+        combine(wifiOnly, chargingOnly, snapshot, syncMonitor.status, logLines) { w, c, s, status, log ->
+            SyncUiState(wifiOnly = w, chargingOnly = c, snapshot = s, syncStatus = status, logLines = log)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncUiState())
 
     init {
         viewModelScope.launch {
-            repository.observeErrors().collect { errors.value = it }
+            val errorsFlow = repository.observeErrors()
+            combine(SyncEventLog.events, errorsFlow) { events, errs ->
+                val errLines = errs.map { "${it.ticker}: ${it.lastError ?: "erro"}" }
+                (events + errLines).distinct().take(30)
+            }.collect { logLines.value = it }
         }
         viewModelScope.launch {
             while (isActive) {

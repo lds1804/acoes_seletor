@@ -78,6 +78,7 @@ object SyncScheduler {
 
     /** On-demand chain: table -> details -> balances -> prices. */
     fun triggerNow(context: Context) {
+        SyncEventLog.log("Sincronização manual disparada")
         val constraints = SyncConstraints.default()
         val table = OneTimeWorkRequestBuilder<B3TableWorker>()
             .setConstraints(constraints).addTag(SyncMonitor.SYNC_TAG).build()
@@ -98,6 +99,7 @@ object SyncScheduler {
 
     /** On-demand refresh of a single ticker ("Atualizar esta ação agora"). */
     fun triggerSingle(context: Context, ticker: String, market: Market) {
+        SyncEventLog.log("Atualização individual de $ticker")
         val input = Data.Builder()
             .putString(RefreshSingleWorker.KEY_TICKER, ticker)
             .putString(RefreshSingleWorker.KEY_MARKET, market.code)

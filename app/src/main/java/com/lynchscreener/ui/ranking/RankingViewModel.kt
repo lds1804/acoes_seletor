@@ -28,11 +28,20 @@ enum class SortBy(val label: String) {
     DY("Maior DY"),
 }
 
+data class RankingFilters(
+    val onlyNetCash: Boolean = false,
+    val pegyBelowOne: Boolean = false,
+    val hideNegativePe: Boolean = false,
+) {
+    val hasActiveFilters: Boolean get() = onlyNetCash || pegyBelowOne || hideNegativePe
+}
+
 data class RankingUiState(
     val market: Market = Market.BR,
     val viewMode: ViewMode = ViewMode.GENERAL,
     val query: String = "",
     val sortBy: SortBy = SortBy.SCORE,
+    val filters: RankingFilters = RankingFilters(),
     val isLoading: Boolean = true,
     val items: List<RankingItem> = emptyList(),
     val sectorStats: Map<String, SectorStats> = emptyMap(),
@@ -48,6 +57,9 @@ class RankingViewModel(
     private val viewMode = MutableStateFlow(ViewMode.GENERAL)
     private val query = MutableStateFlow("")
     private val sortBy = MutableStateFlow(SortBy.SCORE)
+    private val onlyNetCash = MutableStateFlow(false)
+    private val pegyBelowOne = MutableStateFlow(false)
+    private val hideNegativePe = MutableStateFlow(false)
 
     private val companies = market.flatMapLatest { repository.observeRanked(it) }
 
@@ -55,23 +67,40 @@ class RankingViewModel(
     val syncStatus: StateFlow<SyncStatus> =
         syncMonitor.status.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncStatus())
 
-    val uiState: StateFlow<RankingUiState> =
-        combine(market, viewMode, query, sortBy, companies) { m, vm, q, s, comps ->
-            val ranked = Ranking.rank(comps)
-            val filtered = if (q.isBlank()) ranked else ranked.filter { item ->
-                item.company.ticker.contains(q, ignoreCase = true) ||
-                    (item.company.name?.contains(q, ignoreCase = true) == true)
-            }
-            RankingUiState(
-                market = m,
-                viewMode = vm,
-                query = q,
-                sortBy = s,
-                isLoading = false,
-                items = sortBy(filtered, s),
-                sectorStats = Ranking.sectorStats(comps),
-            )
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), RankingUiState())
+    private val filters = combine(onlyNetCash, pegyBelowOne, hideNegativePe) { a, b, c ->
+        RankingFilters(a, b, c)
+    }
+
+    private val inputs = combine(market, viewMode, query, sortBy, filters) { m, vm, q, s, f ->
+        Input(m, vm, q, s, f)
+    }
+
+    val uiState: StateFlow<RankingUiState> = combine(inputs, companies) { input, comps ->
+        val ranked = Ranking.rank(comps)
+        var filtered = if (input.query.isBlank()) ranked else ranked.filter { item ->
+            item.company.ticker.contains(input.query, ignoreCase = true) ||
+                (item.company.name?.contains(input.query, ignoreCase = true) == true)
+        }
+        if (input.filters.onlyNetCash) {
+            filtered = filtered.filter { (it.company.netCashToMarketCap ?: 0.0) > 0.0 }
+        }
+        if (input.filters.pegyBelowOne) {
+            filtered = filtered.filter { (it.company.pegy ?: Double.MAX_VALUE) < 1.0 }
+        }
+        if (input.filters.hideNegativePe) {
+            filtered = filtered.filter { it.company.pe == null || it.company.pe > 0.0 }
+        }
+        RankingUiState(
+            market = input.market,
+            viewMode = input.viewMode,
+            query = input.query,
+            sortBy = input.sortBy,
+            filters = input.filters,
+            isLoading = false,
+            items = sortList(filtered, input.sortBy),
+            sectorStats = Ranking.sectorStats(comps),
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), RankingUiState())
 
     fun setMarket(value: Market) {
         market.value = value
@@ -89,7 +118,27 @@ class RankingViewModel(
         sortBy.value = value
     }
 
-    private fun sortBy(list: List<RankingItem>, s: SortBy): List<RankingItem> = when (s) {
+    fun setOnlyNetCash(value: Boolean) {
+        onlyNetCash.value = value
+    }
+
+    fun setPegyBelowOne(value: Boolean) {
+        pegyBelowOne.value = value
+    }
+
+    fun setHideNegativePe(value: Boolean) {
+        hideNegativePe.value = value
+    }
+
+    private data class Input(
+        val market: Market,
+        val viewMode: ViewMode,
+        val query: String,
+        val sortBy: SortBy,
+        val filters: RankingFilters,
+    )
+
+    private fun sortList(list: List<RankingItem>, s: SortBy): List<RankingItem> = when (s) {
         SortBy.SCORE -> list.sortedBy { it.overallRank }
         SortBy.PEGY -> list.sortedBy { it.company.pegy ?: Double.MAX_VALUE }
         SortBy.PE -> list.sortedBy { it.company.pe ?: Double.MAX_VALUE }

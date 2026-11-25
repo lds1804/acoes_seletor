@@ -1,5 +1,11 @@
 package com.lynchscreener.ui.sync
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -10,7 +16,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
@@ -35,12 +40,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lynchscreener.data.local.entity.AssetEntity
+import com.lynchscreener.ui.components.PulsingDot
+import com.lynchscreener.ui.theme.ScoreGood
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SyncScreen(viewModel: SyncViewModel) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val snapshot = state.snapshot
+    val sync = state.syncStatus
 
     Scaffold(
         topBar = {
@@ -71,10 +79,14 @@ fun SyncScreen(viewModel: SyncViewModel) {
             }
 
             item {
+                LiveStatusCard(sync = sync)
+            }
+
+            item {
                 Card(
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(18.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                 ) {
                     Column(Modifier.padding(16.dp)) {
                         Text("Progresso das filas", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -93,9 +105,9 @@ fun SyncScreen(viewModel: SyncViewModel) {
 
             item {
                 Card(
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(18.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                 ) {
                     Column(Modifier.padding(16.dp)) {
                         Text("Preferências de rede", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -115,9 +127,9 @@ fun SyncScreen(viewModel: SyncViewModel) {
 
             item {
                 Card(
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(18.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                 ) {
                     Column(Modifier.padding(16.dp)) {
                         Text("Log de erros", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -135,8 +147,59 @@ fun SyncScreen(viewModel: SyncViewModel) {
 }
 
 @Composable
+private fun LiveStatusCard(sync: com.lynchscreener.worker.SyncStatus) {
+    val isSyncing = sync.isSyncing
+    Card(
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSyncing) MaterialTheme.colorScheme.primaryContainer
+            else MaterialTheme.colorScheme.surface,
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        modifier = Modifier.animateContentSize(),
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            PulsingDot(
+                color = if (isSyncing) MaterialTheme.colorScheme.primary else ScoreGood,
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = when {
+                        isSyncing -> "Sincronizando"
+                        sync.hasWork -> "Na fila"
+                        else -> "Em espera"
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isSyncing) MaterialTheme.colorScheme.onPrimaryContainer
+                    else MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = when {
+                        isSyncing -> "${sync.runningTasks} tarefa(s) em execução"
+                        sync.hasWork -> "${sync.enqueuedTasks} tarefa(s) aguardando"
+                        else -> "Nenhuma sincronização ativa no momento"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isSyncing) MaterialTheme.colorScheme.onPrimaryContainer
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun ProgressRow(label: String, done: Int, total: Int) {
     val fraction = if (total > 0) done.toFloat() / total else 0f
+    val animated by animateFloatAsState(targetValue = fraction, label = "progress")
     Column(Modifier.padding(vertical = 6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
@@ -149,10 +212,10 @@ private fun ProgressRow(label: String, done: Int, total: Int) {
         }
         Spacer(Modifier.height(4.dp))
         LinearProgressIndicator(
-            progress = { fraction.coerceIn(0f, 1f) },
+            progress = { animated.coerceIn(0f, 1f) },
             modifier = Modifier
                 .fillMaxWidth()
-                .height(6.dp),
+                .height(8.dp),
         )
     }
 }
@@ -167,16 +230,18 @@ private fun ToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean
 
 @Composable
 private fun ErrorList(errors: List<AssetEntity>) {
-    Column {
-        errors.forEach { error ->
-            Row(Modifier.padding(vertical = 4.dp)) {
-                Text(error.ticker, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                Text(
-                    "  ${error.lastError ?: "erro"}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                )
+    AnimatedVisibility(visible = true, enter = fadeIn(), exit = fadeOut()) {
+        Column {
+            errors.forEach { error ->
+                Row(Modifier.padding(vertical = 4.dp)) {
+                    Text(error.ticker, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "  ${error.lastError ?: "erro"}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
         }
     }

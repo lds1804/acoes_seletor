@@ -41,7 +41,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lynchscreener.domain.model.Market
 import com.lynchscreener.domain.model.ScoreComponent
 import com.lynchscreener.ui.components.MetricTile
-import com.lynchscreener.ui.components.ScoreBadge
+import com.lynchscreener.ui.components.ScoreRing
 import com.lynchscreener.ui.components.SectorBadge
 import com.lynchscreener.ui.format.Formatters
 
@@ -117,7 +117,7 @@ private fun HeaderCard(company: com.lynchscreener.domain.model.RankedCompany, ma
                         company.subsector?.let { SectorBadge(it) }
                     }
                 }
-                ScoreBadge(company.lynchScore)
+                ScoreRing(score = company.lynchScore, size = 56.dp, strokeWidth = 5.dp)
             }
 
             Spacer(Modifier.height(14.dp))

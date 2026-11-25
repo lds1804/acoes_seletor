@@ -7,7 +7,9 @@ import com.lynchscreener.data.local.entity.AssetEntity
 import com.lynchscreener.data.repository.AssetRepository
 import com.lynchscreener.data.repository.SyncSettings
 import com.lynchscreener.data.repository.SyncSnapshot
+import com.lynchscreener.worker.SyncMonitor
 import com.lynchscreener.worker.SyncScheduler
+import com.lynchscreener.worker.SyncStatus
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -21,12 +23,14 @@ data class SyncUiState(
     val wifiOnly: Boolean = true,
     val chargingOnly: Boolean = true,
     val snapshot: SyncSnapshot? = null,
+    val syncStatus: SyncStatus = SyncStatus(),
     val errors: List<AssetEntity> = emptyList(),
 )
 
 class SyncViewModel(
     private val repository: AssetRepository,
     private val syncSettings: SyncSettings,
+    private val syncMonitor: SyncMonitor,
     private val app: Application,
 ) : ViewModel() {
 
@@ -36,8 +40,8 @@ class SyncViewModel(
     private val errors = MutableStateFlow<List<AssetEntity>>(emptyList())
 
     val uiState: StateFlow<SyncUiState> =
-        combine(wifiOnly, chargingOnly, snapshot, errors) { w, c, s, e ->
-            SyncUiState(wifiOnly = w, chargingOnly = c, snapshot = s, errors = e)
+        combine(wifiOnly, chargingOnly, snapshot, syncMonitor.status, errors) { w, c, s, status, e ->
+            SyncUiState(wifiOnly = w, chargingOnly = c, snapshot = s, syncStatus = status, errors = e)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncUiState())
 
     init {

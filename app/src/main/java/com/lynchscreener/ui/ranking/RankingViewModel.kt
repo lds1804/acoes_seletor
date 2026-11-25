@@ -7,6 +7,8 @@ import com.lynchscreener.domain.Ranking
 import com.lynchscreener.domain.model.Market
 import com.lynchscreener.domain.model.RankingItem
 import com.lynchscreener.domain.model.SectorStats
+import com.lynchscreener.worker.SyncMonitor
+import com.lynchscreener.worker.SyncStatus
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -37,7 +39,10 @@ data class RankingUiState(
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class RankingViewModel(private val repository: AssetRepository) : ViewModel() {
+class RankingViewModel(
+    private val repository: AssetRepository,
+    private val syncMonitor: SyncMonitor,
+) : ViewModel() {
 
     private val market = MutableStateFlow(Market.BR)
     private val viewMode = MutableStateFlow(ViewMode.GENERAL)
@@ -45,6 +50,10 @@ class RankingViewModel(private val repository: AssetRepository) : ViewModel() {
     private val sortBy = MutableStateFlow(SortBy.SCORE)
 
     private val companies = market.flatMapLatest { repository.observeRanked(it) }
+
+    /** Live background sync status (running / enqueued tasks). */
+    val syncStatus: StateFlow<SyncStatus> =
+        syncMonitor.status.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncStatus())
 
     val uiState: StateFlow<RankingUiState> =
         combine(market, viewMode, query, sortBy, companies) { m, vm, q, s, comps ->

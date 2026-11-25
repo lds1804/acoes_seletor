@@ -27,6 +27,7 @@ object SyncScheduler {
             ExistingWorkPolicy.KEEP,
             OneTimeWorkRequestBuilder<SeedUniverseWorker>()
                 .setConstraints(SyncConstraints.default())
+                .addTag(SyncMonitor.SYNC_TAG)
                 .build()
         )
 
@@ -37,6 +38,7 @@ object SyncScheduler {
             PeriodicWorkRequestBuilder<B3TableWorker>(24, TimeUnit.HOURS)
                 .setConstraints(SyncConstraints.default())
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.HOURS)
+                .addTag(SyncMonitor.SYNC_TAG)
                 .build()
         )
 
@@ -47,6 +49,7 @@ object SyncScheduler {
             PeriodicWorkRequestBuilder<B3DetailsWorker>(3, TimeUnit.HOURS)
                 .setConstraints(SyncConstraints.slowQueue(settings.wifiOnly, settings.chargingOnly))
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.HOURS)
+                .addTag(SyncMonitor.SYNC_TAG)
                 .build()
         )
 
@@ -57,6 +60,7 @@ object SyncScheduler {
             PeriodicWorkRequestBuilder<SecBalancesWorker>(6, TimeUnit.HOURS)
                 .setConstraints(SyncConstraints.slowQueue(settings.wifiOnly, settings.chargingOnly))
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.HOURS)
+                .addTag(SyncMonitor.SYNC_TAG)
                 .build()
         )
 
@@ -67,6 +71,7 @@ object SyncScheduler {
             PeriodicWorkRequestBuilder<PriceRefreshWorker>(6, TimeUnit.HOURS)
                 .setConstraints(SyncConstraints.priceQueue(settings.wifiOnly))
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.MINUTES)
+                .addTag(SyncMonitor.SYNC_TAG)
                 .build()
         )
     }
@@ -74,10 +79,14 @@ object SyncScheduler {
     /** On-demand chain: table -> details -> balances -> prices. */
     fun triggerNow(context: Context) {
         val constraints = SyncConstraints.default()
-        val table = OneTimeWorkRequestBuilder<B3TableWorker>().setConstraints(constraints).build()
-        val details = OneTimeWorkRequestBuilder<B3DetailsWorker>().setConstraints(constraints).build()
-        val sec = OneTimeWorkRequestBuilder<SecBalancesWorker>().setConstraints(constraints).build()
-        val price = OneTimeWorkRequestBuilder<PriceRefreshWorker>().setConstraints(constraints).build()
+        val table = OneTimeWorkRequestBuilder<B3TableWorker>()
+            .setConstraints(constraints).addTag(SyncMonitor.SYNC_TAG).build()
+        val details = OneTimeWorkRequestBuilder<B3DetailsWorker>()
+            .setConstraints(constraints).addTag(SyncMonitor.SYNC_TAG).build()
+        val sec = OneTimeWorkRequestBuilder<SecBalancesWorker>()
+            .setConstraints(constraints).addTag(SyncMonitor.SYNC_TAG).build()
+        val price = OneTimeWorkRequestBuilder<PriceRefreshWorker>()
+            .setConstraints(constraints).addTag(SyncMonitor.SYNC_TAG).build()
 
         WorkManager.getInstance(context)
             .beginUniqueWork("manual_sync", ExistingWorkPolicy.REPLACE, table)
@@ -97,6 +106,7 @@ object SyncScheduler {
         val request = OneTimeWorkRequestBuilder<RefreshSingleWorker>()
             .setConstraints(SyncConstraints.default())
             .setInputData(input)
+            .addTag(SyncMonitor.SYNC_TAG)
             .build()
 
         WorkManager.getInstance(context)

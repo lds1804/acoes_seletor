@@ -1,5 +1,14 @@
 package com.lynchscreener.ui.ranking
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,6 +40,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -43,6 +53,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -51,9 +63,11 @@ import com.lynchscreener.domain.model.Market
 import com.lynchscreener.domain.model.RankingItem
 import com.lynchscreener.domain.model.SectorStats
 import com.lynchscreener.ui.components.MetricTile
-import com.lynchscreener.ui.components.ScoreBadge
+import com.lynchscreener.ui.components.PulsingDot
+import com.lynchscreener.ui.components.ScoreRing
 import com.lynchscreener.ui.components.SectorBadge
 import com.lynchscreener.ui.components.SegmentedControl
+import com.lynchscreener.ui.components.ShimmerBox
 import com.lynchscreener.ui.format.Formatters
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -63,17 +77,18 @@ fun RankingScreen(
     onCompanyClick: (String) -> Unit,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val syncStatus by viewModel.syncStatus.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Lynch Screener", fontWeight = FontWeight.Bold)
-                        Text(
-                            text = if (state.market == Market.BR) "B3 · Brasil" else "S&P 500 · EUA",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        Spacer(Modifier.width(10.dp))
+                        PulsingDot(
+                            color = if (syncStatus.isSyncing) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.outline,
                         )
                     }
                 },
@@ -89,6 +104,8 @@ fun RankingScreen(
                 .padding(padding)
                 .fillMaxSize()
         ) {
+            SyncBanner(isSyncing = syncStatus.isSyncing, hasWork = syncStatus.hasWork)
+
             // Market selector
             Row(Modifier.padding(horizontal = 16.dp)) {
                 SegmentedControl(
@@ -99,7 +116,7 @@ fun RankingScreen(
                 )
             }
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(10.dp))
 
             // Search + sort
             Row(
@@ -121,16 +138,20 @@ fun RankingScreen(
                         }
                     },
                     singleLine = true,
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                    ),
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(8.dp))
                 SortMenu(current = state.sortBy, onSelect = viewModel::setSortBy)
             }
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(10.dp))
 
-            // View mode (Geral | Por setor)
+            // View mode
             Row(Modifier.padding(horizontal = 16.dp)) {
                 SegmentedControl(
                     options = listOf("Ranking geral", "Por setor"),
@@ -140,52 +161,18 @@ fun RankingScreen(
                 )
             }
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(10.dp))
 
-            when {
-                state.isLoading -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
-                    }
-                }
-
-                state.items.isEmpty() -> {
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .padding(24.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            "Nenhuma ação ainda.\nToque em Sincronizar para buscar os dados.",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-
-                state.viewMode == ViewMode.GENERAL -> {
-                    LazyColumn(
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        items(state.items, key = { it.company.ticker }) { item ->
-                            CompanyCard(
-                                item = item,
-                                market = state.market,
-                                rankText = "#${item.overallRank}",
-                                subtitle = item.company.sector ?: "—",
-                                onClick = { onCompanyClick(item.company.ticker) },
-                            )
-                        }
-                    }
-                }
-
-                else -> {
-                    SectorView(
-                        state = state,
-                        onCompanyClick = onCompanyClick,
-                    )
+            Crossfade(
+                targetState = state.isLoading,
+                animationSpec = tween(300),
+                label = "loadingCrossfade",
+            ) { loading ->
+                when {
+                    loading -> LoadingList()
+                    state.items.isEmpty() -> EmptyState()
+                    state.viewMode == ViewMode.GENERAL -> GeneralList(state, onCompanyClick)
+                    else -> SectorView(state, onCompanyClick)
                 }
             }
         }
@@ -193,10 +180,87 @@ fun RankingScreen(
 }
 
 @Composable
-private fun SectorView(
-    state: RankingUiState,
-    onCompanyClick: (String) -> Unit,
-) {
+private fun SyncBanner(isSyncing: Boolean, hasWork: Boolean) {
+    AnimatedVisibility(
+        visible = isSyncing || hasWork,
+        enter = fadeIn() + slideInVertically(),
+        exit = fadeOut() + slideOutVertically(),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.primaryContainer)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            PulsingDot(color = MaterialTheme.colorScheme.onPrimaryContainer)
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = if (isSyncing) "Sincronizando em segundo plano…" else "Sincronização agendada…",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+    }
+}
+
+@Composable
+private fun LoadingList() {
+    LazyColumn(
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        items(6) {
+            ShimmerBox(Modifier.fillMaxWidth().height(120.dp))
+        }
+    }
+}
+
+@Composable
+private fun EmptyState() {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                "Nenhuma ação ainda",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Toque em Sincronizar (aba inferior) para buscar os dados do Fundamentus e da SEC.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun GeneralList(state: RankingUiState, onCompanyClick: (String) -> Unit) {
+    LazyColumn(
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        items(state.items, key = { it.company.ticker }) { item ->
+            CompanyCard(
+                item = item,
+                market = state.market,
+                rankText = "#${item.overallRank}",
+                subtitle = item.company.sector ?: "—",
+                onClick = { onCompanyClick(item.company.ticker) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun SectorView(state: RankingUiState, onCompanyClick: (String) -> Unit) {
     var selectedSector by remember(state.market) { mutableStateOf<String?>(null) }
 
     val sectors = state.items
@@ -278,9 +342,12 @@ private fun CompanyCard(
     val c = item.company
     Card(
         onClick = onClick,
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .animateContentSize(),
     ) {
         Column(Modifier.padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -291,23 +358,24 @@ private fun CompanyCard(
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.width(72.dp),
                 )
-                Text(
-                    text = c.ticker,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                )
-                Spacer(Modifier.weight(1f))
-                ScoreBadge(c.lynchScore)
-            }
-            Spacer(Modifier.height(6.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = c.name ?: "—",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                )
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = c.ticker,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = c.name ?: "—",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                }
                 Spacer(Modifier.width(8.dp))
+                ScoreRing(score = c.lynchScore)
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 SectorBadge(subtitle)
             }
             Spacer(Modifier.height(12.dp))
@@ -350,7 +418,7 @@ private fun SortMenu(current: SortBy, onSelect: (SortBy) -> Unit) {
 }
 
 @Composable
-private fun pegColor(pegy: Double?): androidx.compose.ui.graphics.Color =
+private fun pegColor(pegy: Double?): Color =
     when {
         pegy == null -> MaterialTheme.colorScheme.onSurface
         pegy < 1.0 -> com.lynchscreener.ui.theme.ScoreGreat

@@ -18,13 +18,13 @@ class AppViewModelFactory(private val container: AppContainer) : ViewModelProvid
         val app = extras[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as LynchScreenerApp
         return when {
             modelClass.isAssignableFrom(RankingViewModel::class.java) ->
-                RankingViewModel(container.repository) as T
+                RankingViewModel(container.repository, container.syncMonitor) as T
 
             modelClass.isAssignableFrom(DetailViewModel::class.java) ->
                 DetailViewModel(container.repository, extras.createSavedStateHandle(), app) as T
 
             modelClass.isAssignableFrom(SyncViewModel::class.java) ->
-                SyncViewModel(container.repository, container.syncSettings, app) as T
+                SyncViewModel(container.repository, container.syncSettings, container.syncMonitor, app) as T
 
             else -> throw IllegalArgumentException("ViewModel desconhecida: ${modelClass.name}")
         }

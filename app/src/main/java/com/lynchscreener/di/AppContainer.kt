@@ -2,6 +2,7 @@ package com.lynchscreener.di
 
 import android.content.Context
 import androidx.room.Room
+import androidx.work.WorkManager
 import com.lynchscreener.data.local.AppDatabase
 import com.lynchscreener.data.remote.FundamentusClient
 import com.lynchscreener.data.remote.PriceClient
@@ -9,6 +10,7 @@ import com.lynchscreener.data.remote.SecClient
 import com.lynchscreener.data.repository.AssetRepository
 import com.lynchscreener.data.repository.SyncSettings
 import com.lynchscreener.domain.LynchScoringEngine
+import com.lynchscreener.worker.SyncMonitor
 import java.util.concurrent.TimeUnit
 import okhttp3.OkHttpClient
 
@@ -45,4 +47,6 @@ class AppContainer(context: Context) {
     }
 
     val syncSettings: SyncSettings by lazy { SyncSettings(appContext) }
+
+    val syncMonitor: SyncMonitor by lazy { SyncMonitor(WorkManager.getInstance(appContext)) }
 }

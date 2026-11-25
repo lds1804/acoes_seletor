@@ -20,8 +20,9 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Configurar Android SDK
-        uses: android-actions/setup-android@v3
+      # O runner ubuntu-latest já traz o Android SDK em /usr/local/lib/android/sdk
+      # (ANDROID_HOME pré-definido e licenças aceitas). O AGP baixa o compileSdk
+      # e build-tools que faltarem automaticamente.
 
       - name: Configurar Gradle
         uses: gradle/actions/setup-gradle@v4

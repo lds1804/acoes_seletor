@@ -287,8 +287,7 @@ private fun EmptyState() {
 }
 
 @Composable
-private fun GeneralList(state: com.lynchscreener.ui.ranking.RankingUiState, onCompanyClick: (String) -> Unit) {
-    val market = state.mitems: List<RankingItem>, market: Market, onCompanyClick: (String) -> Unit) {
+private fun GeneralList(items: List<RankingItem>, market: Market, onCompanyClick: (String) -> Unit) {
     LazyColumn(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -316,7 +315,8 @@ private fun SectorGroupedList(
         groups.forEach { (sector, itemsInSector) ->
             val isExpanded = expanded[sector] ?: true
             item(key = "header_$sector") {
-                SectorHeader(sector, itemsInSector, 
+                SectorHeader(sector, itemsInSector, sectorStats[sector], isExpanded) {
+                    expanded[sector] = !isExpanded
                 }
             }
             if (isExpanded) {

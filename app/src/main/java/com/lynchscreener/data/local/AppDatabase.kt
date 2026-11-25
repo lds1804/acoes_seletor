@@ -2,6 +2,8 @@ package com.lynchscreener.data.local
 
 import androidx.room.Database
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.lynchscreener.data.local.dao.AssetDao
 import com.lynchscreener.data.local.dao.FundamentalsDao
 import com.lynchscreener.data.local.dao.PortfolioPositionDao
@@ -15,7 +17,7 @@ import com.lynchscreener.data.local.entity.PortfolioPositionEntity
         FundamentalsEntity::class,
         PortfolioPositionEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -26,5 +28,13 @@ abstract class AppDatabase : RoomDatabase() {
 
     companion object {
         const val NAME = "lynch_screener.db"
+
+        /** Etapa 2: adds sharesOutstanding + dividendPerShare to `fundamentals`. */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE fundamentals ADD COLUMN sharesOutstanding REAL")
+                db.execSQL("ALTER TABLE fundamentals ADD COLUMN dividendPerShare REAL")
+            }
+        }
     }
 }

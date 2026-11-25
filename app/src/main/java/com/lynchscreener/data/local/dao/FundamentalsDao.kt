@@ -22,6 +22,9 @@ interface FundamentalsDao {
     @Query("SELECT * FROM fundamentals WHERE ticker = :ticker")
     fun observeByTicker(ticker: String): Flow<FundamentalsEntity?>
 
+    @Query("SELECT * FROM fundamentals WHERE ticker IN (:tickers)")
+    suspend fun getByTickers(tickers: List<String>): List<FundamentalsEntity>
+
     /** Invalidate existing ranks before recomputing (Etapa 3). */
     @Query("UPDATE fundamentals SET overallRank = NULL, sectorRank = NULL")
     suspend fun clearRanks()

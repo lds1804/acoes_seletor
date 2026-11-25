@@ -36,6 +36,10 @@ data class FundamentalsEntity(
     val netCashToMarketCap: Double?,
     val equity: Double?,
     val netIncome12m: Double?,
+    /** Shares used to recompute market cap / P/L / P/VP on price refresh. */
+    val sharesOutstanding: Double?,
+    /** Latest annual dividends per share, used to recompute DY on price refresh. */
+    val dividendPerShare: Double?,
     /** Average daily traded volume (R$ for BR, USD for US). */
     val liquidity: Double?,
     val lynchScore: Int,

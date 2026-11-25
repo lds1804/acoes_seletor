@@ -35,10 +35,41 @@ app/src/main/java/com/lynchscreener/
 
 ## Roadmap
 
-- **Etapa 1 (esta):** gradle, entidades Room, DAOs, `LynchScoringEngine` + testes.
-- **Etapa 2:** clientes de rede (Fundamentus + SEC EDGAR + Yahoo/Stooq), parsers
-  defensivos e `CoroutineWorker`s incrementais com backoff exponencial.
+- **Etapa 1:** gradle, entidades Room, DAOs, `LynchScoringEngine` + testes.
+- **Etapa 2 (esta):** clientes de rede (Fundamentus + SEC EDGAR + Yahoo/Stooq),
+  parsers defensivos e `CoroutineWorker`s incrementais com backoff exponencial.
 - **Etapa 3:** ViewModels, ranking/médias por setor e as 3 telas em Compose.
+
+## Etapa 2 — rede e background
+
+```
+data/remote/      HttpConfig, OkHttp helper, FundamentusClient, SecClient, PriceClient
+data/remote/dto/  Sp500Entry, QuotePrice, SecFundamentals, B3TableRow/B3Details
+data/remote/parser/ FundamentusParser, SecCompanyFactsParser, YahooChartParser, StooqCsvParser
+data/repository/  AssetRepository (merge + scoring + filas) e SyncSettings
+worker/           B3TableWorker, B3DetailsWorker, SecBalancesWorker, PriceRefreshWorker,
+                  SeedUniverseWorker, SyncConstraints, SyncScheduler, LynchWorkerFactory
+di/               AppContainer (DI manual)
+```
+
+### Fluxo de coleta (filas incrementais com checkpoint)
+
+- **B3 tabela** (`B3TableWorker`, diário): 1 GET em `resultado.php`, parse com
+  Jsoup, descarta papéis com liquidez < R$ 500 mil/dia.
+- **B3 detalhes** (`B3DetailsWorker`, a cada 3h): 15 tickers mais desatualizados,
+  delay 1,5–2,0s, checkpoint de `syncStatus` a cada papel.
+- **SEC balanços** (`SecBalancesWorker`, a cada 6h): 20 empresas com balanço
+  mais antigo que ~75 dias, ~3 req/s, JSON bruto descartado da memória.
+- **Cotações** (`PriceRefreshWorker`, a cada 6h): Yahoo (primário) + Stooq
+  (fallback), recalculando P/L, P/VP, Market Cap, DY e PEGY localmente.
+
+### ⚠️ Antes do primeiro sync US
+
+Rode o script para gerar o universo do S&P 500 (o `sp500_universe.json` vem vazio):
+
+```bash
+python tools/build_sp500_universe.py
+```
 
 ## SEC User-Agent
 

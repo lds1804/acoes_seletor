@@ -74,4 +74,27 @@ interface AssetDao {
 
     @Query("SELECT COUNT(*) FROM assets WHERE market = :market")
     suspend fun countByMarket(market: String): Int
+
+    /**
+     * Next US batch for the SEC balances queue. Only returns companies whose
+     * fundamentals are stale (older than [olderThanMs]), so we skip the ones
+     * refreshed recently (balances change only quarterly).
+     */
+    @Query(
+        """
+        SELECT * FROM assets
+        WHERE market = 'US'
+          AND (fundamentalsUpdatedAt IS NULL OR fundamentalsUpdatedAt < :olderThanMs)
+          AND syncStatus != 'SYNCING'
+        ORDER BY fundamentalsUpdatedAt IS NULL DESC, fundamentalsUpdatedAt ASC
+        LIMIT :limit
+        """
+    )
+    suspend fun nextSecBalanceBatch(olderThanMs: Long, limit: Int): List<AssetEntity>
+
+    @Query("SELECT COUNT(*) FROM assets WHERE market = :market AND fundamentalsUpdatedAt IS NOT NULL")
+    suspend fun countWithFundamentals(market: String): Int
+
+    @Query("SELECT COUNT(*) FROM assets WHERE market = :market AND priceUpdatedAt IS NOT NULL")
+    suspend fun countWithPrice(market: String): Int
 }

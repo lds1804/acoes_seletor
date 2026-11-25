@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import com.lynchscreener.data.local.entity.AssetEntity
+import com.lynchscreener.domain.model.RankedCompany
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -97,4 +98,63 @@ interface AssetDao {
 
     @Query("SELECT COUNT(*) FROM assets WHERE market = :market AND priceUpdatedAt IS NOT NULL")
     suspend fun countWithPrice(market: String): Int
+
+    /**
+     * Companies with fundamentals, ordered by Lynch score descending.
+     * The [RankedCompany] projection feeds the ranking screen; overall and
+     * sector positions are computed in [com.lynchscreener.domain.Ranking].
+     */
+    @Query(
+        """
+        SELECT a.ticker AS ticker, a.market AS market, a.name AS name,
+               a.sector AS sector, a.subsector AS subsector,
+               a.price AS price, a.marketCap AS marketCap,
+               f.pe AS pe, f.pb AS pb, f.roe AS roe, f.roic AS roic,
+               f.dividendYield AS dividendYield, f.cagr5y AS cagr5y,
+               f.pegy AS pegy, f.netDebt AS netDebt,
+               f.netCashToMarketCap AS netCashToMarketCap,
+               f.equity AS equity, f.netIncome12m AS netIncome12m,
+               f.sharesOutstanding AS sharesOutstanding,
+               f.dividendPerShare AS dividendPerShare,
+               f.liquidity AS liquidity,
+               f.lynchScore AS lynchScore, f.lynchCategory AS lynchCategory,
+               f.breakdownJson AS breakdownJson,
+               a.priceUpdatedAt AS priceUpdatedAt,
+               a.fundamentalsUpdatedAt AS fundamentalsUpdatedAt
+        FROM assets a
+        INNER JOIN fundamentals f ON a.ticker = f.ticker
+        WHERE a.market = :market
+        ORDER BY f.lynchScore DESC, a.ticker ASC
+        """
+    )
+    fun observeRanked(market: String): Flow<List<RankedCompany>>
+
+    @Query(
+        """
+        SELECT a.ticker AS ticker, a.market AS market, a.name AS name,
+               a.sector AS sector, a.subsector AS subsector,
+               a.price AS price, a.marketCap AS marketCap,
+               f.pe AS pe, f.pb AS pb, f.roe AS roe, f.roic AS roic,
+               f.dividendYield AS dividendYield, f.cagr5y AS cagr5y,
+               f.pegy AS pegy, f.netDebt AS netDebt,
+               f.netCashToMarketCap AS netCashToMarketCap,
+               f.equity AS equity, f.netIncome12m AS netIncome12m,
+               f.sharesOutstanding AS sharesOutstanding,
+               f.dividendPerShare AS dividendPerShare,
+               f.liquidity AS liquidity,
+               f.lynchScore AS lynchScore, f.lynchCategory AS lynchCategory,
+               f.breakdownJson AS breakdownJson,
+               a.priceUpdatedAt AS priceUpdatedAt,
+               a.fundamentalsUpdatedAt AS fundamentalsUpdatedAt
+        FROM assets a
+        INNER JOIN fundamentals f ON a.ticker = f.ticker
+        WHERE a.ticker = :ticker
+        LIMIT 1
+        """
+    )
+    fun observeRankedByTicker(ticker: String): Flow<RankedCompany?>
+
+    /** Tickers currently in ERROR state, for the sync screen error log. */
+    @Query("SELECT * FROM assets WHERE syncStatus = 'ERROR' ORDER BY ticker LIMIT 50")
+    fun observeErrors(): Flow<List<AssetEntity>>
 }

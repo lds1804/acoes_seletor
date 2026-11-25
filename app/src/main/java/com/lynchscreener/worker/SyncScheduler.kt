@@ -2,12 +2,14 @@ package com.lynchscreener.worker
 
 import android.content.Context
 import androidx.work.BackoffPolicy
+import androidx.work.Data
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.lynchscreener.data.repository.SyncSettings
+import com.lynchscreener.domain.model.Market
 import java.util.concurrent.TimeUnit
 
 /**
@@ -83,5 +85,21 @@ object SyncScheduler {
             .then(sec)
             .then(price)
             .enqueue()
+    }
+
+    /** On-demand refresh of a single ticker ("Atualizar esta ação agora"). */
+    fun triggerSingle(context: Context, ticker: String, market: Market) {
+        val input = Data.Builder()
+            .putString(RefreshSingleWorker.KEY_TICKER, ticker)
+            .putString(RefreshSingleWorker.KEY_MARKET, market.code)
+            .build()
+
+        val request = OneTimeWorkRequestBuilder<RefreshSingleWorker>()
+            .setConstraints(SyncConstraints.default())
+            .setInputData(input)
+            .build()
+
+        WorkManager.getInstance(context)
+            .enqueueUniqueWork("refresh_$ticker", ExistingWorkPolicy.REPLACE, request)
     }
 }

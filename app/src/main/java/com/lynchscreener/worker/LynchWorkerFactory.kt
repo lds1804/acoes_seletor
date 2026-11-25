@@ -32,6 +32,9 @@ class LynchWorkerFactory(private val container: AppContainer) : WorkerFactory() 
         SeedUniverseWorker::class.java.name ->
             SeedUniverseWorker(appContext, workerParameters, container.repository)
 
+        RefreshSingleWorker::class.java.name ->
+            RefreshSingleWorker(appContext, workerParameters, container.priceClient, container.repository)
+
         else -> null
     }
 }

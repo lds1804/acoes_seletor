@@ -13,7 +13,9 @@ import com.lynchscreener.data.remote.dto.Sp500Entry
 import com.lynchscreener.domain.LynchScoringEngine
 import com.lynchscreener.domain.model.Financials
 import com.lynchscreener.domain.model.Market
+import com.lynchscreener.domain.model.RankedCompany
 import com.lynchscreener.domain.model.ScoreComponent
+import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -59,6 +61,32 @@ class AssetRepository(
     /** Number of tickers in [market] that already have a price (for progress). */
     suspend fun countWithPrice(market: Market): Int =
         assetDao.countWithPrice(market.code)
+
+    // -----------------------------------------------------------------
+    // Read models for the UI (Etapa 3)
+    // -----------------------------------------------------------------
+
+    /** Companies (with fundamentals) of a market, sorted by Lynch score desc. */
+    fun observeRanked(market: Market): Flow<List<RankedCompany>> =
+        assetDao.observeRanked(market.code)
+
+    /** A single company projection (with fundamentals), or null. */
+    fun observeCompany(ticker: String): Flow<RankedCompany?> =
+        assetDao.observeRankedByTicker(ticker)
+
+    /** Tickers currently failing sync (for the error log). */
+    fun observeErrors(): Flow<List<AssetEntity>> =
+        assetDao.observeErrors()
+
+    /** Snapshot of sync progress (totals vs. processed) for the sync screen. */
+    suspend fun syncSnapshot(): SyncSnapshot = SyncSnapshot(
+        brTotal = assetDao.countByMarket(Market.BR.code),
+        brWithFundamentals = assetDao.countWithFundamentals(Market.BR.code),
+        brWithPrice = assetDao.countWithPrice(Market.BR.code),
+        usTotal = assetDao.countByMarket(Market.US.code),
+        usWithFundamentals = assetDao.countWithFundamentals(Market.US.code),
+        usWithPrice = assetDao.countWithPrice(Market.US.code),
+    )
 
     // -----------------------------------------------------------------
     // Seed US universe from bundled assets

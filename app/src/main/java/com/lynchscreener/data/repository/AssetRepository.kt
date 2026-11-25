@@ -52,6 +52,14 @@ class AssetRepository(
     suspend fun markError(ticker: String, message: String) =
         assetDao.markError(ticker, message)
 
+    /** Number of tickers in [market] that already have fundamentals (for progress). */
+    suspend fun countWithFundamentals(market: Market): Int =
+        assetDao.countWithFundamentals(market.code)
+
+    /** Number of tickers in [market] that already have a price (for progress). */
+    suspend fun countWithPrice(market: Market): Int =
+        assetDao.countWithPrice(market.code)
+
     // -----------------------------------------------------------------
     // Seed US universe from bundled assets
     // -----------------------------------------------------------------

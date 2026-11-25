@@ -1,0 +1,4 @@
+<resources>
+    <!-- Minimal host theme. The real Material 3 theme lives in Compose (Etapa 3). -->
+    <style name="Theme.LynchScreener" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

@@ -17,6 +17,8 @@ data class B3TableRow(
 
 /** Enriched fields from the Fundamentus `detalhes.php` page. */
 data class B3Details(
+    /** Razão social / nome comercial (campo "Empresa"). */
+    val name: String?,
     val sector: String?,
     val subsector: String?,
     val marketCap: Double?,
@@ -24,4 +26,6 @@ data class B3Details(
     val cash: Double?,
     val netDebt: Double?,
     val netIncome12m: Double?,
+    /** Número de ações emitidas (campo "Nro. Ações"). */
+    val shares: Double?,
 )

@@ -33,7 +33,8 @@ object HttpConfig {
     const val PRICE_MIN_INTERVAL_MS = 500L
 
     // Queue sizing per WorkManager cycle.
-    const val B3_DETAILS_BATCH = 15
+    // 50 p/ enriquecer setor/nome/detalhes da B3 (223 tickers) em ~5 ciclos.
+    const val B3_DETAILS_BATCH = 50
     const val SEC_BALANCE_BATCH = 20
     const val PRICE_BATCH = 25
 

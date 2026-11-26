@@ -68,6 +68,7 @@ object FundamentusParser {
         }
 
         return B3Details(
+            name = get("Empresa"),
             sector = get("Setor"),
             subsector = get("Subsetor"),
             marketCap = BrNumber.toDouble(get("Valor de mercado")),
@@ -75,6 +76,7 @@ object FundamentusParser {
             cash = BrNumber.toDouble(get("Disponibilidades")),
             netDebt = BrNumber.toDouble(get("Dívida Líquida", "Dív. Líquida")),
             netIncome12m = BrNumber.toDouble(get("Lucro Líquido")),
+            shares = BrNumber.toDouble(get("Nro. Ações")),
         )
     }
 }

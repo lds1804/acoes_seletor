@@ -214,7 +214,7 @@ class AssetRepository(
 
         val price = asset.price
         val marketCap = details.marketCap ?: asset.marketCap
-        val shares = when {
+        val shares = details.shares ?: when {
             price != null && price > 0.0 && marketCap != null -> marketCap / price
             else -> prev?.sharesOutstanding
         }
@@ -243,6 +243,7 @@ class AssetRepository(
 
         assetDao.upsert(
             asset.copy(
+                name = details.name ?: asset.name,
                 sector = details.sector ?: asset.sector,
                 subsector = details.subsector ?: asset.subsector,
                 marketCap = marketCap,

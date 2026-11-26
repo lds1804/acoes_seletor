@@ -167,8 +167,11 @@ class LynchScoringEngineTest {
 
     @Test
     fun `component points sum to total score`() {
+        // Each criterion is rounded individually before summing (and any ceiling
+        // is exposed as its own component), so the numbers shown in the Raio-X
+        // add up to the value inside the ring.
         val score = engine.score(healthy())
-        assertEquals(score.totalScore, score.components.sumOf { it.points }.roundToInt())
+        assertEquals(score.totalScore, score.components.sumOf { kotlin.math.round(it.points).toInt() })
     }
 
     // ---------------------------------------------------------------

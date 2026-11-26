@@ -14,12 +14,11 @@ class SecClient(private val client: OkHttpClient) {
     /** XBRL company facts for a 10-digit CIK (e.g. "0000320193"). */
     suspend fun fetchCompanyFacts(cik: String): String {
         require(cik.length == 10) { "CIK must be zero-padded to 10 digits, got '$cik'" }
+        // NOTE: do NOT set Accept-Encoding manually — OkHttp transparently
+        // gzips and decompresses; overriding it would return raw gzip bytes.
         return client.get(
             SEC_COMPANY_FACTS.format(cik),
-            mapOf(
-                "User-Agent" to SEC_USER_AGENT,
-                "Accept-Encoding" to "gzip, deflate",
-            ),
+            mapOf("User-Agent" to SEC_USER_AGENT),
         )
     }
 }

@@ -35,8 +35,8 @@ object HttpConfig {
     // Queue sizing per WorkManager cycle.
     // 50 p/ enriquecer setor/nome/detalhes da B3 (223 tickers) em ~5 ciclos.
     const val B3_DETAILS_BATCH = 50
-    const val SEC_BALANCE_BATCH = 20
-    const val PRICE_BATCH = 25
+    const val SEC_BALANCE_BATCH = 60
+    const val PRICE_BATCH = 60
 
     // SEC: only reprocess balances older than ~75 days.
     const val SEC_STALENESS_MS = 75L * 24L * 60L * 60L * 1000L

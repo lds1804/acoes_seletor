@@ -16,6 +16,13 @@ interface FundamentalsDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(fundamentals: List<FundamentalsEntity>)
 
+    /**
+     * Inserts only the rows that do not exist yet (IGNORE on conflict), so a
+     * re-seed never overwrites already-collected fundamentals.
+     */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertIgnoreAll(fundamentals: List<FundamentalsEntity>)
+
     @Query("SELECT * FROM fundamentals WHERE ticker = :ticker")
     suspend fun getByTicker(ticker: String): FundamentalsEntity?
 

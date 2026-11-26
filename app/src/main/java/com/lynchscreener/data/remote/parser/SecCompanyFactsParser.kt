@@ -30,7 +30,8 @@ object SecCompanyFactsParser {
     )
     private val DEBT_LT = listOf("LongTermDebtNoncurrent", "LongTermDebt")
     private val DEBT_ST = listOf("DebtCurrent", "LongTermDebtCurrent")
-    private val SHARES = listOf("CommonStockSharesOutstanding")
+    // Shares live under "dei" as EntityCommonStockSharesOutstanding for most filers.
+    private val SHARES = listOf("EntityCommonStockSharesOutstanding", "CommonStockSharesOutstanding")
     private val DIVIDEND = listOf("CommonStockDividendsPerShareDeclared")
 
     fun parse(raw: String): SecFundamentals {
@@ -108,6 +109,8 @@ object SecCompanyFactsParser {
         }
 
         val sorted = byYear.values.sortedBy { it["end"]?.jsonPrimitive?.contentOrNull ?: "" }
+        // Keep only the last 6 fiscal years → 5-year CAGR when used downstream.
         return sorted.mapNotNull { it["val"]?.jsonPrimitive?.contentOrNull?.toDoubleOrNull() }
+            .takeLast(6)
     }
 }

@@ -34,9 +34,11 @@ class PriceClient(private val client: OkHttpClient) {
         null
     }
 
+    /** Yahoo uses a hyphen for share classes: BRK.B -> BRK-B. */
     private fun yahooSymbol(ticker: String, market: Market): String =
-        if (market == Market.US) ticker else "$ticker.SA"
+        if (market == Market.US) ticker.replace('.', '-') else "$ticker.SA"
 
+    /** Stooq uses a hyphen for share classes: brk-b.us. */
     private fun stooqSymbol(ticker: String, market: Market): String =
-        if (market == Market.US) "${ticker.lowercase()}.us" else ticker.lowercase()
+        if (market == Market.US) "${ticker.lowercase().replace('.', '-')}.us" else ticker.lowercase()
 }

@@ -12,6 +12,7 @@ import com.lynchscreener.data.remote.dto.SecFundamentals
 import com.lynchscreener.data.remote.dto.Sp500Entry
 import com.lynchscreener.domain.LynchScoringEngine
 import com.lynchscreener.domain.model.Financials
+import com.lynchscreener.domain.model.LynchCategory
 import com.lynchscreener.domain.model.Market
 import com.lynchscreener.domain.model.RankedCompany
 import com.lynchscreener.domain.model.ScoreComponent
@@ -115,6 +116,35 @@ class AssetRepository(
                     fundamentalsUpdatedAt = null,
                     syncStatus = AssetEntity.SyncStatus.PENDING,
                     lastError = null,
+                )
+            }
+        )
+
+        // Placeholder fundamentals so the US list is visible immediately after
+        // the seed. IGNORE keeps any fundamentals already collected from SEC.
+        fundamentalsDao.insertIgnoreAll(
+            entries.map { entry ->
+                FundamentalsEntity(
+                    ticker = entry.ticker,
+                    pe = null,
+                    pb = null,
+                    roe = null,
+                    roic = null,
+                    dividendYield = null,
+                    cagr5y = null,
+                    pegy = null,
+                    netDebt = null,
+                    netCashToMarketCap = null,
+                    equity = null,
+                    netIncome12m = null,
+                    sharesOutstanding = null,
+                    dividendPerShare = null,
+                    liquidity = null,
+                    lynchScore = 0,
+                    lynchCategory = LynchCategory.UNRATED.label,
+                    overallRank = null,
+                    sectorRank = null,
+                    breakdownJson = null,
                 )
             }
         )

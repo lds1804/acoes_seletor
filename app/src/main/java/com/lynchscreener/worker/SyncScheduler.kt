@@ -122,8 +122,8 @@ object SyncScheduler {
      */
     fun triggerInitialIfNeeded(context: Context) {
         val prefs = context.getSharedPreferences("sync_state", Context.MODE_PRIVATE)
-        if (prefs.getBoolean("initial_sync_done", false)) return
-        prefs.edit().putBoolean("initial_sync_done", true).apply()
+        if (prefs.getBoolean(INITIAL_SYNC_KEY, false)) return
+        prefs.edit().putBoolean(INITIAL_SYNC_KEY, true).apply()
 
         SyncEventLog.log("Primeira execução: disparando sincronização inicial")
         val constraints = SyncConstraints.default()
@@ -133,6 +133,8 @@ object SyncScheduler {
             .setConstraints(constraints).addTag(SyncMonitor.SYNC_TAG).build()
         val details = OneTimeWorkRequestBuilder<B3DetailsWorker>()
             .setConstraints(constraints).addTag(SyncMonitor.SYNC_TAG).build()
+        val sec = OneTimeWorkRequestBuilder<SecBalancesWorker>()
+            .setConstraints(constraints).addTag(SyncMonitor.SYNC_TAG).build()
         val price = OneTimeWorkRequestBuilder<PriceRefreshWorker>()
             .setConstraints(constraints).addTag(SyncMonitor.SYNC_TAG).build()
 
@@ -140,7 +142,10 @@ object SyncScheduler {
             .beginUniqueWork("initial_sync", ExistingWorkPolicy.KEEP, seed)
             .then(table)
             .then(details)
-            .then(price)
+            .then(price)   // prices first so SEC can compute P/L, P/VP, DY
+            .then(sec)
             .enqueue()
     }
+
+    private const val INITIAL_SYNC_KEY = "initial_sync_done_v2"
 }

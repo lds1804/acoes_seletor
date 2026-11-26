@@ -38,8 +38,10 @@ object HttpConfig {
     // One-time download on Wi-Fi (~200 MB total); results are cached in Room.
     val CVM_DFP_YEARS = listOf(2025, 2024, 2023, 2022, 2021)
 
-    // Fundamentus net-income account (DRE consolidado).
-    const val CVM_NET_INCOME_ACCOUNT = "3.11"
+    // NOTE: there is deliberately NO "net income account code" constant here.
+    // The DRE account number changes with the filing regime (3.11 for
+    // industrials, 3.09 for banks such as Itaú, 3.13 for insurers such as
+    // BB Seguridade), so `CvmClient` matches the line by its DESCRIPTION.
 
     const val CVM_USER_AGENT = "LynchScreenerApp/1.0 (lds1804@gmail.com)"
 

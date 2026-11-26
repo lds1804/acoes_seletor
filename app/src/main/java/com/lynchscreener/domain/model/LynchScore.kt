@@ -18,4 +18,7 @@ data class LynchScore(
 
     /** True when a ceiling lowered the score. */
     val isCapped: Boolean get() = totalScore < baseScore
+
+    /** Risk / data-quality alerts (profit drop, atypical yield, thin equity…). */
+    val flags: List<LynchFlag> = emptyList()
 }

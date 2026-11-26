@@ -37,6 +37,14 @@ data class Financials(
     val earningsCagr5y: Double? = null,
     /** False when the company posted a loss in any of the last 5 fiscal years. */
     val earningsConsistent: Boolean? = null,
+    /**
+     * Variation of net income against the previous 12 months (fraction).
+     *
+     * Computed locally from the annual history already stored in Room, so the
+     * momentum check never requires a new download. Negative values trigger the
+     * profit-drop penalty and flag.
+     */
+    val earningsYoy: Double? = null,
     val netDebt: Double? = null,
     val totalDebt: Double? = null,
     val cashAndEquivalents: Double? = null,

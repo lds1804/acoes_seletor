@@ -37,6 +37,13 @@ data class RankedCompany(
     val earningsHistoryJson: String?,
     /** `CONTROLLERS` or `CONSOLIDATED` — which shareholder group the series uses. */
     val earningsBasis: String?,
+    /** Variation of net income vs the previous 12 months (fraction). */
+    val earningsYoy: Double?,
+    /** Comma-separated [LynchFlag] codes, or null when the company is clean. */
+    val alertFlags: String?,
     val priceUpdatedAt: Long?,
     val fundamentalsUpdatedAt: Long?,
-)
+) {
+    /** Decoded alert flags for the UI. */
+    val flags: List<LynchFlag> get() = LynchFlag.fromCodes(alertFlags)
+}

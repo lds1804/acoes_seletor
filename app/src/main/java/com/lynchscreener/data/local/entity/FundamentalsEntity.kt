@@ -45,6 +45,10 @@ data class FundamentalsEntity(
      * earnings/equity refer to (see [com.lynchscreener.data.remote.dto.EarningsBasis]).
      */
     val earningsBasis: String? = null,
+    /** Variation of net income vs the previous 12 months (fraction). */
+    val earningsYoy: Double? = null,
+    /** Comma-separated [com.lynchscreener.domain.model.LynchFlag] codes. */
+    val alertFlags: String? = null,
     val pegy: Double?,
     /** Positive = net debt, negative = net cash. */
     val netDebt: Double?,

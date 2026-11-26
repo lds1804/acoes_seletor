@@ -16,6 +16,7 @@ import com.lynchscreener.data.remote.dto.Sp500Entry
 import com.lynchscreener.domain.LynchScoringEngine
 import com.lynchscreener.domain.model.Financials
 import com.lynchscreener.domain.model.LynchCategory
+import com.lynchscreener.domain.model.LynchFlag
 import com.lynchscreener.domain.model.Market
 import com.lynchscreener.domain.model.RankedCompany
 import com.lynchscreener.domain.model.ScoreComponent
@@ -36,6 +37,28 @@ class AssetRepository(
 ) {
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+
+    /**
+     * Year-over-year variation of net income, derived from the annual history
+     * already stored in Room.
+     *
+     * This is what makes the momentum check free: no extra CVM/SEC download is
+     * needed to notice that a company's profit just fell by 20%.
+     * Returns null when there are fewer than two comparable years or when the
+     * base year was a loss (percentage growth from a loss is meaningless).
+     */
+    private fun yoyFromHistory(historyJson: String?): Double? {
+        if (historyJson.isNullOrBlank() || historyJson == "{}") return null
+        val map = runCatching {
+            json.decodeFromString<Map<String, Double>>(historyJson)
+        }.getOrNull() ?: return null
+        val years = map.keys.mapNotNull { it.toIntOrNull() }.sorted()
+        if (years.size < 2) return null
+        val last = map[years.last().toString()] ?: return null
+        val previous = map[years[years.size - 2].toString()] ?: return null
+        if (previous <= 0.0) return null
+        return last / previous - 1.0
+    }
 
     // -----------------------------------------------------------------
     // Queue cursors (checkpointing by timestamp)
@@ -111,6 +134,7 @@ class AssetRepository(
 
             val earnings = CvmEarnings.from(raw.netIncomeByYear)
             val statement = parentBasis(prev, asset.marketCap, raw, earnings)
+            val historyJson = encodeEarnings(earnings.netIncomeByYear)
 
             val financials = Financials(
                 ticker = ticker,
@@ -126,6 +150,7 @@ class AssetRepository(
                 cagr5y = prev.cagr5y,
                 earningsCagr5y = earnings.cagr5y,
                 earningsConsistent = earnings.consistent,
+                earningsYoy = yoyFromHistory(historyJson),
                 netDebt = prev.netDebt,
                 totalDebt = null,
                 cashAndEquivalents = null,
@@ -148,7 +173,9 @@ class AssetRepository(
                     earningsBasis = raw.basis.name,
                     earningsCagr5y = earnings.cagr5y,
                     earningsConsistent = earnings.consistent,
-                    earningsHistoryJson = encodeEarnings(earnings.netIncomeByYear),
+                    earningsYoy = yoyFromHistory(historyJson),
+                    alertFlags = LynchFlag.toCodes(score.flags),
+                    earningsHistoryJson = historyJson,
                     pegy = score.pegy,
                     netCashToMarketCap = score.netCashToMarketCap,
                     lynchScore = score.totalScore,
@@ -281,6 +308,9 @@ class AssetRepository(
 
         for (prev in all) {
             val asset = assets[prev.ticker] ?: continue
+            // Momentum is derived from data already on disk, so a rule change is
+            // picked up without downloading anything again.
+            val yoy = yoyFromHistory(prev.earningsHistoryJson)
             val financials = Financials(
                 ticker = prev.ticker,
                 market = Market.fromCode(asset.market),
@@ -295,6 +325,7 @@ class AssetRepository(
                 cagr5y = prev.cagr5y,
                 earningsCagr5y = prev.earningsCagr5y,
                 earningsConsistent = prev.earningsConsistent,
+                earningsYoy = yoy,
                 netDebt = prev.netDebt,
                 totalDebt = null,
                 cashAndEquivalents = null,
@@ -307,6 +338,8 @@ class AssetRepository(
             val score = engine.score(financials)
             fundamentalsDao.upsert(
                 prev.copy(
+                    earningsYoy = yoy,
+                    alertFlags = LynchFlag.toCodes(score.flags),
                     pegy = score.pegy,
                     netCashToMarketCap = score.netCashToMarketCap,
                     lynchScore = score.totalScore,
@@ -458,6 +491,7 @@ class AssetRepository(
                     cagr5y = row.cagr5y,
                     earningsCagr5y = prev?.earningsCagr5y,
                     earningsConsistent = prev?.earningsConsistent,
+                    earningsYoy = yoyFromHistory(prev?.earningsHistoryJson),
                     netDebt = prev?.netDebt,
                     totalDebt = null,
                     cashAndEquivalents = null,
@@ -479,6 +513,10 @@ class AssetRepository(
                     earningsCagr5y = prev?.earningsCagr5y,
                     earningsConsistent = prev?.earningsConsistent,
                     earningsHistoryJson = prev?.earningsHistoryJson,
+                    equityControllers = prev?.equityControllers,
+                    earningsBasis = prev?.earningsBasis,
+                    earningsYoy = yoyFromHistory(prev?.earningsHistoryJson),
+                    alertFlags = LynchFlag.toCodes(score.flags),
                     pegy = score.pegy,
                     netDebt = prev?.netDebt,
                     netCashToMarketCap = score.netCashToMarketCap,
@@ -542,6 +580,7 @@ class AssetRepository(
             cagr5y = prev?.cagr5y,
             earningsCagr5y = prev?.earningsCagr5y,
             earningsConsistent = prev?.earningsConsistent,
+            earningsYoy = yoyFromHistory(prev?.earningsHistoryJson),
             netDebt = details.netDebt ?: prev?.netDebt,
             totalDebt = null,
             cashAndEquivalents = details.cash,
@@ -576,6 +615,8 @@ class AssetRepository(
                 earningsHistoryJson = prev?.earningsHistoryJson,
                 equityControllers = prev?.equityControllers,
                 earningsBasis = prev?.earningsBasis,
+                earningsYoy = yoyFromHistory(prev?.earningsHistoryJson),
+                alertFlags = LynchFlag.toCodes(score.flags),
                 dividendYield = prev?.dividendYield,
                 cagr5y = prev?.cagr5y,
                 pegy = score.pegy,
@@ -623,6 +664,13 @@ class AssetRepository(
         } else {
             prev?.earningsConsistent
         }
+        // SEC already returns the annual series, so momentum is free here too.
+        val yoy = run {
+            val history = sec.netIncomeHistory
+            if (history.size < 2) return@run null
+            val previous = history[history.size - 2]
+            if (previous <= 0.0) null else history.last() / previous - 1.0
+        }
         val roe = if (netIncome != null && equity != null && equity != 0.0) netIncome / equity else prev?.roe
         val pe = if (netIncome != null && netIncome > 0.0 && marketCap != null) marketCap / netIncome else prev?.pe
         val pb = if (marketCap != null && equity != null && equity != 0.0) marketCap / equity else prev?.pb
@@ -642,6 +690,7 @@ class AssetRepository(
             cagr5y = cagr,
             earningsCagr5y = cagr,
             earningsConsistent = consistent,
+            earningsYoy = yoy,
             netDebt = netDebt,
             totalDebt = totalDebt,
             cashAndEquivalents = cash,
@@ -671,6 +720,10 @@ class AssetRepository(
                 earningsCagr5y = cagr,
                 earningsConsistent = consistent,
                 earningsHistoryJson = prev?.earningsHistoryJson,
+                equityControllers = prev?.equityControllers,
+                earningsBasis = prev?.earningsBasis,
+                earningsYoy = yoy,
+                alertFlags = LynchFlag.toCodes(score.flags),
                 dividendYield = dy,
                 cagr5y = cagr,
                 pegy = score.pegy,
@@ -730,6 +783,7 @@ class AssetRepository(
                 roe = prev.roe,
                 earningsCagr5y = prev.earningsCagr5y,
                 earningsConsistent = prev.earningsConsistent,
+                earningsYoy = yoyFromHistory(prev.earningsHistoryJson),
                 roic = prev.roic,
                 dividendYield = dy,
                 cagr5y = prev.cagr5y,
@@ -748,6 +802,7 @@ class AssetRepository(
                     pe = pe,
                     pb = pb,
                     dividendYield = dy,
+                    alertFlags = LynchFlag.toCodes(score.flags),
                     pegy = score.pegy,
                     netCashToMarketCap = score.netCashToMarketCap,
                     lynchScore = score.totalScore,

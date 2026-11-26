@@ -162,6 +162,8 @@ interface AssetDao {
                f.earningsConsistent AS earningsConsistent,
                f.earningsHistoryJson AS earningsHistoryJson,
                f.earningsBasis AS earningsBasis,
+               f.earningsYoy AS earningsYoy,
+               f.alertFlags AS alertFlags,
                a.priceUpdatedAt AS priceUpdatedAt,
                a.fundamentalsUpdatedAt AS fundamentalsUpdatedAt
         FROM assets a
@@ -191,6 +193,8 @@ interface AssetDao {
                f.earningsConsistent AS earningsConsistent,
                f.earningsHistoryJson AS earningsHistoryJson,
                f.earningsBasis AS earningsBasis,
+               f.earningsYoy AS earningsYoy,
+               f.alertFlags AS alertFlags,
                a.priceUpdatedAt AS priceUpdatedAt,
                a.fundamentalsUpdatedAt AS fundamentalsUpdatedAt
         FROM assets a

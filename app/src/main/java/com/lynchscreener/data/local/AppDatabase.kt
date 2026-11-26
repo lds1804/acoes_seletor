@@ -17,7 +17,7 @@ import com.lynchscreener.data.local.entity.PortfolioPositionEntity
         FundamentalsEntity::class,
         PortfolioPositionEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -55,6 +55,17 @@ abstract class AppDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE fundamentals ADD COLUMN equityControllers REAL")
                 db.execSQL("ALTER TABLE fundamentals ADD COLUMN earningsBasis TEXT")
+            }
+        }
+
+        /**
+         * Ranking v3: earnings momentum (YoY) and the alert flags shown next to
+         * the score and in the exported list.
+         */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE fundamentals ADD COLUMN earningsYoy REAL")
+                db.execSQL("ALTER TABLE fundamentals ADD COLUMN alertFlags TEXT")
             }
         }
     }

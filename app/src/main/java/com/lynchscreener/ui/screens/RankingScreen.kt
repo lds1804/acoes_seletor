@@ -14,6 +14,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,9 +35,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -58,8 +63,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -77,13 +84,15 @@ import com.lynchscreener.ui.components.StockRankCard
 import com.lynchscreener.ui.components.sectorIcon
 import com.lynchscreener.ui.components.shimmerEffect
 import com.lynchscreener.ui.format.Formatters
+import com.lynchscreener.ui.format.MarkdownExport
 import com.lynchscreener.ui.ranking.RankingViewModel
 import com.lynchscreener.ui.ranking.SortBy
 import com.lynchscreener.ui.ranking.ViewMode
 import com.lynchscreener.ui.theme.LocalLynchColors
 import com.lynchscreener.worker.SyncScheduler
+import android.widget.Toast
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun RankingScreen(
     viewModel: RankingViewModel,
@@ -97,9 +106,29 @@ fun RankingScreen(
 
     var isRefreshing by remember { mutableStateOf(false) }
     var showFilters by remember { mutableStateOf(false) }
+    var showExportMenu by remember { mutableStateOf(false) }
     var selectedSector by remember(state.market) { mutableStateOf<String?>(null) }
     val displayItems = if (selectedSector == null) state.items
     else state.items.filter { (it.company.sector ?: Ranking.OUTROS) == selectedSector }
+
+    val clipboard = LocalClipboardManager.current
+
+    // Copies exactly what is on screen: the active market tab, the search query,
+    // the filter sheet and the sector chip are all already applied to displayItems.
+    fun copyTop(limit: Int) {
+        val text = MarkdownExport.build(
+            items = displayItems,
+            market = state.market,
+            filterLabel = selectedSector ?: "Todos",
+            limit = limit,
+        )
+        clipboard.setText(AnnotatedString(text))
+        Toast.makeText(
+            context,
+            "Top $limit copiado para a área de transferência",
+            Toast.LENGTH_SHORT,
+        ).show()
+    }
 
     Column(
         Modifier
@@ -136,6 +165,55 @@ fun RankingScreen(
                     onQueryChange = viewModel::setQuery,
                     modifier = Modifier.weight(1f),
                 )
+                Spacer(Modifier.width(8.dp))
+
+                // Export: tap copies the Top 30, long-press offers Top 50.
+                Box {
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .border(1.dp, colors.borderSubtle, RoundedCornerShape(12.dp))
+                            .background(colors.surfaceElevated)
+                            .combinedClickable(
+                                onClick = {
+                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    copyTop(MarkdownExport.DEFAULT_LIMIT)
+                                },
+                                onLongClick = {
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    showExportMenu = true
+                                },
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Rounded.ContentCopy,
+                            contentDescription = "Copiar ranking em Markdown",
+                            tint = colors.textPrimary,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = showExportMenu,
+                        onDismissRequest = { showExportMenu = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Copiar Top 30") },
+                            onClick = {
+                                showExportMenu = false
+                                copyTop(MarkdownExport.DEFAULT_LIMIT)
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Copiar Top 50") },
+                            onClick = {
+                                showExportMenu = false
+                                copyTop(MarkdownExport.LARGE_LIMIT)
+                            },
+                        )
+                    }
+                }
+
                 Spacer(Modifier.width(8.dp))
                 Box {
                     IconButton(

@@ -4,6 +4,7 @@ import com.lynchscreener.domain.LynchScoringEngine
 import com.lynchscreener.domain.model.Financials
 import com.lynchscreener.domain.model.LynchCategory
 import com.lynchscreener.domain.model.Market
+import kotlin.math.roundToInt
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -171,7 +172,7 @@ class LynchScoringEngineTest {
         // is exposed as its own component), so the numbers shown in the Raio-X
         // add up to the value inside the ring.
         val score = engine.score(healthy())
-        assertEquals(score.totalScore, score.components.sumOf { kotlin.math.round(it.points).toInt() })
+        assertEquals(score.totalScore, score.components.sumOf { it.points.roundToInt() })
     }
 
     // ---------------------------------------------------------------

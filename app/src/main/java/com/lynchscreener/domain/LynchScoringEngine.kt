@@ -106,8 +106,10 @@ class LynchScoringEngine {
             if (BANK_KEYWORDS.any { s.contains(it) || sub.contains(it) }) return true
             if (INSURER_KEYWORDS.any { s.contains(it) || sub.contains(it) }) return true
 
-            // US (SEC/GICS) only exposes the sector, no subsector.
-            return sub.isBlank() && (s == "financials" || s == "financial")
+            // No subsector to disambiguate (US/GICS, or a generic B3 label):
+            // fall back to the sector alone.
+            val generic = setOf("financials", "financial", "financeiro", "financeira")
+            return sub.isBlank() && s in generic
         }
 
         fun isCyclicalSector(sector: String?): Boolean =

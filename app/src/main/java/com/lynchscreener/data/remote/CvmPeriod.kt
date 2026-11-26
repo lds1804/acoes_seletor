@@ -26,11 +26,17 @@ object CvmPeriod {
         return year * 12 + (month - 1)
     }
 
-    /** Length of the exercise period in months, or null when a date is missing. */
+    /**
+     * Length of the exercise period in months, counting both ends.
+     *
+     * `2025-01-01` → `2025-12-31` yields 12 (a full year), `2025-01-01` →
+     * `2025-09-30` yields 9 (year-to-date) and `2025-07-01` → `2025-09-30`
+     * yields 3 (an isolated quarter).
+     */
     fun monthsBetween(start: String?, end: String?): Int? {
         val from = monthIndex(start) ?: return null
         val to = monthIndex(end) ?: return null
-        return to - from
+        return (to - from + 1).coerceAtLeast(0)
     }
 
     /** Fiscal year of the period (taken from the end date). */

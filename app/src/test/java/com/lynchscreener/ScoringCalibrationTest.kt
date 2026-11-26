@@ -275,7 +275,7 @@ class ScoringCalibrationTest {
 }
 
 /** Same rounding the engine uses, so the test mirrors the UI exactly. */
-private fun Double.toIntRounded(): Int = kotlin.math.round(this).toInt()
+private fun Double.toIntRounded(): Int = kotlin.math.roundToInt()
 
 @Suppress("unused")
 private fun ScoreComponent.shownPoints(): Int = points.toIntRounded()

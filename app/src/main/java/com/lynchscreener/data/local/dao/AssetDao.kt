@@ -104,6 +104,25 @@ interface AssetDao {
     @Query("SELECT COUNT(*) FROM assets WHERE priceUpdatedAt IS NULL")
     suspend fun countPendingPrices(): Int
 
+    /** B3 tickers whose CVM earnings history was not ingested yet. */
+    @Query(
+        """
+        SELECT ticker FROM assets
+        WHERE market = 'BR'
+          AND ticker NOT IN (SELECT ticker FROM fundamentals WHERE earningsHistoryJson IS NOT NULL)
+        """
+    )
+    suspend fun pendingEarningsTickers(): List<String>
+
+    @Query(
+        """
+        SELECT COUNT(*) FROM assets
+        WHERE market = 'BR'
+          AND ticker NOT IN (SELECT ticker FROM fundamentals WHERE earningsHistoryJson IS NOT NULL)
+        """
+    )
+    suspend fun countPendingEarnings(): Int
+
     @Query("SELECT COUNT(*) FROM assets WHERE market = :market AND priceUpdatedAt IS NOT NULL")
     suspend fun countWithPrice(market: String): Int
 
@@ -127,6 +146,9 @@ interface AssetDao {
                f.liquidity AS liquidity,
                f.lynchScore AS lynchScore, f.lynchCategory AS lynchCategory,
                f.breakdownJson AS breakdownJson,
+               f.earningsCagr5y AS earningsCagr5y,
+               f.earningsConsistent AS earningsConsistent,
+               f.earningsHistoryJson AS earningsHistoryJson,
                a.priceUpdatedAt AS priceUpdatedAt,
                a.fundamentalsUpdatedAt AS fundamentalsUpdatedAt
         FROM assets a
@@ -152,6 +174,9 @@ interface AssetDao {
                f.liquidity AS liquidity,
                f.lynchScore AS lynchScore, f.lynchCategory AS lynchCategory,
                f.breakdownJson AS breakdownJson,
+               f.earningsCagr5y AS earningsCagr5y,
+               f.earningsConsistent AS earningsConsistent,
+               f.earningsHistoryJson AS earningsHistoryJson,
                a.priceUpdatedAt AS priceUpdatedAt,
                a.fundamentalsUpdatedAt AS fundamentalsUpdatedAt
         FROM assets a

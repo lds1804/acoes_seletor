@@ -35,6 +35,9 @@ class LynchWorkerFactory(private val container: AppContainer) : WorkerFactory() 
         RefreshSingleWorker::class.java.name ->
             RefreshSingleWorker(appContext, workerParameters, container.priceClient, container.repository)
 
+        CvmEarningsWorker::class.java.name ->
+            CvmEarningsWorker(appContext, workerParameters, container.cvmClient, container.repository)
+
         else -> null
     }
 }

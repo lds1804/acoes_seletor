@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import androidx.work.WorkManager
 import com.lynchscreener.data.local.AppDatabase
+import com.lynchscreener.data.remote.CvmClient
 import com.lynchscreener.data.remote.FundamentusClient
 import com.lynchscreener.data.remote.PriceClient
 import com.lynchscreener.data.remote.SecClient
@@ -25,7 +26,7 @@ class AppContainer(context: Context) {
 
     val database: AppDatabase by lazy {
         Room.databaseBuilder(appContext, AppDatabase::class.java, AppDatabase.NAME)
-            .addMigrations(AppDatabase.MIGRATION_1_2)
+            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3)
             .build()
     }
 
@@ -41,6 +42,7 @@ class AppContainer(context: Context) {
     val fundamentusClient: FundamentusClient by lazy { FundamentusClient(okHttp) }
     val secClient: SecClient by lazy { SecClient(okHttp) }
     val priceClient: PriceClient by lazy { PriceClient(okHttp) }
+    val cvmClient: CvmClient by lazy { CvmClient(okHttp, appContext.cacheDir) }
 
     val repository: AssetRepository by lazy {
         AssetRepository(database.assetDao(), database.fundamentalsDao(), scoringEngine)

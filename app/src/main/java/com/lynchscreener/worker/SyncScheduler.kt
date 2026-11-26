@@ -74,6 +74,17 @@ object SyncScheduler {
                 .addTag(SyncMonitor.SYNC_TAG)
                 .build()
         )
+
+        // CVM earnings history — weekly (only re-downloads when new tickers appear).
+        wm.enqueueUniquePeriodicWork(
+            "cvm_earnings",
+            ExistingPeriodicWorkPolicy.KEEP,
+            PeriodicWorkRequestBuilder<CvmEarningsWorker>(7, TimeUnit.DAYS)
+                .setConstraints(SyncConstraints.slowQueue(settings.wifiOnly, settings.chargingOnly))
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.HOURS)
+                .addTag(SyncMonitor.SYNC_TAG)
+                .build()
+        )
     }
 
     /** On-demand chain: table -> details -> balances -> prices. */
@@ -88,11 +99,14 @@ object SyncScheduler {
             .setConstraints(constraints).addTag(SyncMonitor.SYNC_TAG).build()
         val price = OneTimeWorkRequestBuilder<PriceRefreshWorker>()
             .setConstraints(constraints).addTag(SyncMonitor.SYNC_TAG).build()
+        val cvm = OneTimeWorkRequestBuilder<CvmEarningsWorker>()
+            .setConstraints(constraints).addTag(SyncMonitor.SYNC_TAG).build()
 
         WorkManager.getInstance(context)
             .beginUniqueWork("manual_sync", ExistingWorkPolicy.REPLACE, table)
             .then(details)
             .then(sec)
+            .then(cvm)
             .then(price)
             .enqueue()
     }
@@ -134,13 +148,16 @@ object SyncScheduler {
         val details = OneTimeWorkRequestBuilder<B3DetailsWorker>()
             .setConstraints(constraints).addTag(SyncMonitor.SYNC_TAG).build()
         val sec = OneTimeWorkRequestBuilder<SecBalancesWorker>()
-            .setConstraints(constraints).addTag(SyncMonitor.SYNC_TAG).build()
-        val price = OneTimeWorkRequestBuilder<PriceRefreshWorker>()
+        val cvm = OneTimeWorkRequestBuilder<CvmEarningsWorker>()
             .setConstraints(constraints).addTag(SyncMonitor.SYNC_TAG).build()
 
         WorkManager.getInstance(context)
             .beginUniqueWork("initial_sync", ExistingWorkPolicy.KEEP, seed)
             .then(table)
+            .then(details)   // sector first (CVM/PEGY need it)
+            .then(price)     // prices so SEC/CVM can compute ratios
+            .then(sec)
+            .then(cvm)       // earnings history last (heaviest downloadle)
             .then(details)
             .then(price)   // prices first so SEC can compute P/L, P/VP, DY
             .then(sec)
@@ -188,7 +205,20 @@ object SyncScheduler {
         )
     }
 
+    /** Next DFP package of the CVM earnings history (one year per run). */
+    fun continueCvm(context: Context) {
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            CHAIN_CVM,
+            ExistingWorkPolicy.APPEND_OR_REPLACE,
+            OneTimeWorkRequestBuilder<CvmEarningsWorker>()
+                .setConstraints(SyncConstraints.default())
+                .addTag(SyncMonitor.SYNC_TAG)
+                .build()
+        )
+    }
+
     private const val CHAIN_B3_DETAILS = "chain_b3_details"
     private const val CHAIN_SEC = "chain_sec"
     private const val CHAIN_PRICES = "chain_prices"
+    private const val CHAIN_CVM = "chain_cvm"
 }

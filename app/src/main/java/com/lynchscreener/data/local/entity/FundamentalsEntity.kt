@@ -29,6 +29,12 @@ data class FundamentalsEntity(
     val roic: Double?,
     val dividendYield: Double?,
     val cagr5y: Double?,
+    /** 5-year compound annual growth rate of NET INCOME (CVM DFP), a fraction. */
+    val earningsCagr5y: Double? = null,
+    /** True when no fiscal year in the 5-year window reported a loss. */
+    val earningsConsistent: Boolean? = null,
+    /** Annual net income history as JSON {"2021":123.4,...} for the detail screen. */
+    val earningsHistoryJson: String? = null,
     val pegy: Double?,
     /** Positive = net debt, negative = net cash. */
     val netDebt: Double?,

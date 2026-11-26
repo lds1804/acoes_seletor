@@ -8,6 +8,7 @@ import com.lynchscreener.data.local.entity.FundamentalsEntity
 import com.lynchscreener.data.remote.HttpConfig
 import com.lynchscreener.data.remote.dto.B3Details
 import com.lynchscreener.data.remote.dto.B3TableRow
+import com.lynchscreener.data.remote.dto.CvmEarnings
 import com.lynchscreener.data.remote.dto.SecFundamentals
 import com.lynchscreener.data.remote.dto.Sp500Entry
 import com.lynchscreener.domain.LynchScoringEngine
@@ -72,6 +73,72 @@ class AssetRepository(
 
     /** Tickers still missing a price. */
     suspend fun countPendingPrices(): Int = assetDao.countPendingPrices()
+
+    // -----------------------------------------------------------------
+    // B3: CVM earnings history (5-year net-income CAGR + consistency)
+    // -----------------------------------------------------------------
+
+    /** B3 tickers whose CVM earnings history has not been ingested yet. */
+    suspend fun pendingEarningsTickers(): List<String> = assetDao.pendingEarningsTickers()
+
+    suspend fun countPendingEarnings(): Int = assetDao.countPendingEarnings()
+
+    /**
+     * Applies the CVM earnings history to the fundamentals of each ticker and
+     * recomputes the Lynch score (PEGY now uses net-income CAGR).
+     */
+    suspend fun applyEarningsBatch(tickerToEarnings: Map<String, CvmEarnings>): Int {
+        var updated = 0
+        for ((ticker, earnings) in tickerToEarnings) {
+            val asset = assetDao.getByTicker(ticker) ?: continue
+            val prev = fundamentalsDao.getByTicker(ticker) ?: continue
+
+            // No earnings found (e.g. no CNPJ match): still mark as attempted
+            // ("{}") so the costly CVM download is not retried forever.
+            if (earnings.isEmpty) {
+                fundamentalsDao.upsert(prev.copy(earningsHistoryJson = "{}"))
+                continue
+            }
+
+            val financials = Financials(
+                ticker = ticker,
+                market = Market.BR,
+                sector = asset.sector,
+                price = asset.price ?: 0.0,
+                pe = prev.pe,
+                pb = prev.pb,
+                roe = prev.roe,
+                roic = prev.roic,
+                dividendYield = prev.dividendYield,
+                cagr5y = prev.cagr5y,
+                earningsCagr5y = earnings.cagr5y,
+                earningsConsistent = earnings.consistent,
+                netDebt = prev.netDebt,
+                totalDebt = null,
+                cashAndEquivalents = null,
+                equity = prev.equity,
+                netIncome12m = prev.netIncome12m,
+                sharesOutstanding = prev.sharesOutstanding,
+                marketCap = asset.marketCap,
+                liquidity = prev.liquidity,
+            )
+            val score = engine.score(financials)
+
+            fundamentalsDao.upsert(
+                prev.copy(
+                    earningsCagr5y = earnings.cagr5y,
+                    earningsConsistent = earnings.consistent,
+                    earningsHistoryJson = encodeEarnings(earnings.netIncomeByYear),
+                    pegy = score.pegy,
+                    lynchScore = score.totalScore,
+                    lynchCategory = score.category.label,
+                    breakdownJson = encodeBreakdown(score.components),
+                )
+            )
+            updated++
+        }
+        return updated
+    }
 
     // -----------------------------------------------------------------
     // Read models for the UI (Etapa 3)
@@ -207,6 +274,8 @@ class AssetRepository(
                     roic = row.roic,
                     dividendYield = row.dividendYield,
                     cagr5y = row.cagr5y,
+                    earningsCagr5y = prev?.earningsCagr5y,
+                    earningsConsistent = prev?.earningsConsistent,
                     netDebt = prev?.netDebt,
                     totalDebt = null,
                     cashAndEquivalents = null,
@@ -225,6 +294,9 @@ class AssetRepository(
                     roic = row.roic,
                     dividendYield = row.dividendYield,
                     cagr5y = row.cagr5y,
+                    earningsCagr5y = prev?.earningsCagr5y,
+                    earningsConsistent = prev?.earningsConsistent,
+                    earningsHistoryJson = prev?.earningsHistoryJson,
                     pegy = score.pegy,
                     netDebt = prev?.netDebt,
                     netCashToMarketCap = score.netCashToMarketCap,
@@ -271,6 +343,8 @@ class AssetRepository(
             roic = prev?.roic,
             dividendYield = prev?.dividendYield,
             cagr5y = prev?.cagr5y,
+            earningsCagr5y = prev?.earningsCagr5y,
+            earningsConsistent = prev?.earningsConsistent,
             netDebt = details.netDebt ?: prev?.netDebt,
             totalDebt = null,
             cashAndEquivalents = details.cash,
@@ -299,6 +373,9 @@ class AssetRepository(
                 pb = prev?.pb,
                 roe = prev?.roe,
                 roic = prev?.roic,
+                earningsCagr5y = prev?.earningsCagr5y,
+                earningsConsistent = prev?.earningsConsistent,
+                earningsHistoryJson = prev?.earningsHistoryJson,
                 dividendYield = prev?.dividendYield,
                 cagr5y = prev?.cagr5y,
                 pegy = score.pegy,
@@ -341,6 +418,11 @@ class AssetRepository(
         val netDebt = netCash?.let { -it }
 
         val cagr = cagrFromNetIncome(sec.netIncomeHistory) ?: prev?.cagr5y
+        val consistent = if (sec.netIncomeHistory.size >= 2) {
+            sec.netIncomeHistory.all { it > 0.0 }
+        } else {
+            prev?.earningsConsistent
+        }
         val roe = if (netIncome != null && equity != null && equity != 0.0) netIncome / equity else prev?.roe
         val pe = if (netIncome != null && netIncome > 0.0 && marketCap != null) marketCap / netIncome else prev?.pe
         val pb = if (marketCap != null && equity != null && equity != 0.0) marketCap / equity else prev?.pb
@@ -357,6 +439,8 @@ class AssetRepository(
             roic = prev?.roic,
             dividendYield = dy,
             cagr5y = cagr,
+            earningsCagr5y = cagr,
+            earningsConsistent = consistent,
             netDebt = netDebt,
             totalDebt = totalDebt,
             cashAndEquivalents = cash,
@@ -383,6 +467,9 @@ class AssetRepository(
                 pb = pb,
                 roe = roe,
                 roic = prev?.roic,
+                earningsCagr5y = cagr,
+                earningsConsistent = consistent,
+                earningsHistoryJson = prev?.earningsHistoryJson,
                 dividendYield = dy,
                 cagr5y = cagr,
                 pegy = score.pegy,
@@ -439,6 +526,8 @@ class AssetRepository(
                 pe = pe,
                 pb = pb,
                 roe = prev.roe,
+                earningsCagr5y = prev.earningsCagr5y,
+                earningsConsistent = prev.earningsConsistent,
                 roic = prev.roic,
                 dividendYield = dy,
                 cagr5y = prev.cagr5y,
@@ -488,6 +577,12 @@ class AssetRepository(
         }
         return previous
     }
+
+    /** Year→net-income map serialized with string keys (JSON object keys). */
+    private fun encodeEarnings(byYear: Map<Int, Double>): String? =
+        runCatching {
+            json.encodeToString(byYear.entries.associate { it.key.toString() to it.value })
+        }.getOrNull()
 
     private fun encodeBreakdown(components: List<ScoreComponent>): String? =
         runCatching { json.encodeToString(components) }.getOrNull()

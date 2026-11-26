@@ -131,10 +131,14 @@ class LynchScoringEngine {
      * The denominator is expressed in percentage POINTS, so a stock with
      * P/L = 20, CAGR = 15% and DY = 5% yields PEGY = 20 / 20 = 1.0.
      * Returns null when undefined (negative earnings or non-positive growth+yield).
+     *
+     * Growth source: net-income CAGR (CVM/SEC) when available, falling back to
+     * the revenue growth reported by Fundamentus. Lynch defines PEGY on
+     * earnings, so earnings growth always wins.
      */
     private fun computePegy(f: Financials, pe: Double?): Double? {
         if (pe == null || pe <= 0.0) return null
-        val growth = f.cagr5y ?: return null
+        val growth = f.earningsCagr5y ?: f.cagr5y ?: return null
         val yield = f.dividendYield ?: 0.0
         val denominator = (growth + yield) * 100.0
         if (denominator <= 0.0) return null
@@ -363,21 +367,26 @@ class LynchScoringEngine {
     // ---------------------------------------------------------------------
 
     private fun classify(f: Financials, pe: Double?, pegy: Double?): LynchCategory {
-        val growth = f.cagr5y
+        val growth = f.earningsCagr5y ?: f.cagr5y
         val roe = f.roe
         val pb = f.pb
 
         return when {
-            // Value trap: looks cheap but deteriorating or unprofitable.
+            // Value trap: looks cheap but earnings are shrinking or unprofitable,
+            // or the company broke Lynch's consistency rule (a loss in the window).
             pe != null && pe in 0.0..10.0 &&
-                ((growth != null && growth < 0.0) || (roe != null && roe < 0.05)) ->
+                (
+                    (growth != null && growth < 0.0) ||
+                        (roe != null && roe < 0.05) ||
+                        (f.earningsConsistent == false)
+                    ) ->
                 LynchCategory.VALUE_TRAP
 
             // Asset play: trading below book value with a healthy ROE.
             pb != null && pb < 1.0 && (roe ?: 0.0) >= 0.05 ->
                 LynchCategory.ASSET_PLAY
 
-            // Fast grower: strong growth at a still-reasonable PEGY.
+            // Fast grower: strong earnings growth at a still-reasonable PEGY.
             growth != null && growth >= 0.15 && (pegy == null || pegy <= 1.5) ->
                 LynchCategory.FAST_GROWER
 

@@ -20,12 +20,19 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.serialization.json.Json
 
+/** One fiscal year of reported net income (CVM DFP, B3 companies). */
+data class EarningsYear(val year: Int, val value: Double)
+
 data class DetailUiState(
     val company: RankedCompany? = null,
     val overallRank: Int? = null,
     val sectorRank: Int? = null,
     val sectorStats: SectorStats? = null,
     val components: List<ScoreComponent> = emptyList(),
+    /** Net income per fiscal year, oldest first. Empty when not yet ingested. */
+    val earningsHistory: List<EarningsYear> = emptyList(),
+    /** True when the company reported the DFP and no losses in the window. */
+    val earningsConsistent: Boolean? = null,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -53,12 +60,22 @@ class DetailViewModel(
         val components = runCatching {
             company.breakdownJson?.let { json.decodeFromString<List<ScoreComponent>>(it) }
         }.getOrNull() ?: emptyList()
+
+        val earnings = runCatching {
+            company.earningsHistoryJson
+                ?.let { json.decodeFromString<Map<String, Double>>(it) }
+                ?.mapNotNull { (year, value) -> year.toIntOrNull()?.let { EarningsYear(it, value) } }
+                ?.sortedBy { it.year }
+        }.getOrNull().orEmpty()
+
         return DetailUiState(
             company = company,
             overallRank = item?.overallRank,
             sectorRank = item?.sectorRank,
             sectorStats = stats,
             components = components,
+            earningsHistory = earnings,
+            earningsConsistent = company.earningsConsistent,
         )
     }
 

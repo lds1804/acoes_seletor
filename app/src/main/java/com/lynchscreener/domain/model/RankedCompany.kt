@@ -29,6 +29,12 @@ data class RankedCompany(
     val lynchScore: Int,
     val lynchCategory: String,
     val breakdownJson: String?,
+    /** CAGR of net income over the last ~5 fiscal years (CVM DFP, B3 only). */
+    val earningsCagr5y: Double?,
+    /** True when every year in the window was profitable. */
+    val earningsConsistent: Boolean?,
+    /** JSON object `{"2020":1234.5,…}` with net income per fiscal year. */
+    val earningsHistoryJson: String?,
     val priceUpdatedAt: Long?,
     val fundamentalsUpdatedAt: Long?,
 )

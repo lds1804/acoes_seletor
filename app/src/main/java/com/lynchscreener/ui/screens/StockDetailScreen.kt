@@ -129,6 +129,7 @@ fun StockDetailScreen(viewModel: DetailViewModel, onBack: () -> Unit) {
         ) {
             item { HeroCard(company, market, state) }
             item { ScoreBreakdownCard(state.components, isFinancial) }
+            item { EarningsCard(state) }
             item { SectorComparisonCard(state) }
             item { FundamentalsGrid(company, market) }
             item { FooterCard(company) }
@@ -263,6 +264,75 @@ private fun ScoreBreakdownCard(components: List<ScoreComponent>, isFinancial: Bo
 }
 
 @Composable
+private fun EarningsCard(state: com.lynchscreener.ui.detail.DetailUiState) {
+    val company = state.company ?: return
+    val colors = LocalLynchColors.current
+    val isBr = Market.fromCode(company.market) == Market.BR
+    val history = state.earningsHistory
+
+    if (history.isEmpty()) {
+        if (!isBr) return
+        SectionCard("Histórico de Lucros") {
+            Text(
+                text = "Ainda não coletado. O histórico vem dos demonstrativos " +
+                    "trimestrais da CVM (DFP) e é baixado em segundo plano — " +
+                    "volte depois da próxima sincronização.",
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.textMuted,
+            )
+        }
+        return
+    }
+
+    val first = history.first().value
+    val last = history.last().value
+    val lossYears = history.count { it.value < 0 }
+
+    SectionCard("Histórico de Lucros") {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = "Lucro líquido consolidado",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.textMuted,
+                )
+                Text(
+                    text = "CVM · ${history.first().year}–${history.last().year}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.textSecondary,
+                )
+            }
+            com.lynchscreener.ui.components.EarningsCagrSeal(
+                cagr = company.earningsCagr5y,
+                consistent = state.earningsConsistent,
+            )
+        }
+
+        Spacer(Modifier.height(14.dp))
+        com.lynchscreener.ui.components.EarningsHistoryChart(years = history)
+        Spacer(Modifier.height(10.dp))
+
+        // Lynch cares about consistency at least as much as the growth rate, so
+        // the verdict is spelled out instead of leaving it to the chart.
+        val (verdict, tone) = when {
+            state.earningsConsistent == true && lossYears == 0 && last > first ->
+                "Lucro crescente e sem anos de prejuízo — padrão de qualidade." to colors.positive
+            lossYears > 0 ->
+                "${lossYears}x de prejuízo na série — crescimento não confiável." to colors.negative
+            last <= first ->
+                "Lucro estagnado ou em queda no período." to colors.textSecondary
+            else ->
+                "Série curta para concluir tendência." to colors.textMuted
+        }
+        Text(
+            text = verdict,
+            style = MaterialTheme.typography.bodySmall,
+            color = tone,
+        )
+    }
+}
+
+@Composable
 private fun SectorComparisonCard(state: com.lynchscreener.ui.detail.DetailUiState) {
     val stats = state.sectorStats ?: return
     val company = state.company ?: return
@@ -292,6 +362,11 @@ private fun FundamentalsGrid(company: RankedCompany, market: Market) {
             ),
             Triple("Lucro líquido 12m", Formatters.compact(company.netIncome12m, market), null),
             Triple("CAGR 5 anos", Formatters.percent(company.cagr5y), null),
+            Triple(
+                "CAGR do lucro",
+                Formatters.percent(company.earningsCagr5y),
+                if (company.earningsConsistent == false) colors.negative else null,
+            ),
             Triple("Liquidez diária", Formatters.compact(company.liquidity, market), null),
         )
         items.chunked(2).forEach { rowItems ->

@@ -17,7 +17,7 @@ import com.lynchscreener.data.local.entity.PortfolioPositionEntity
         FundamentalsEntity::class,
         PortfolioPositionEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -34,6 +34,15 @@ abstract class AppDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE fundamentals ADD COLUMN sharesOutstanding REAL")
                 db.execSQL("ALTER TABLE fundamentals ADD COLUMN dividendPerShare REAL")
+            }
+        }
+
+        /** CVM earnings history: 5-year net-income CAGR + consistency + history JSON. */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE fundamentals ADD COLUMN earningsCagr5y REAL")
+                db.execSQL("ALTER TABLE fundamentals ADD COLUMN earningsConsistent INTEGER")
+                db.execSQL("ALTER TABLE fundamentals ADD COLUMN earningsHistoryJson TEXT")
             }
         }
     }

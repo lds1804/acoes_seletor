@@ -26,6 +26,23 @@ object HttpConfig {
     const val YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart/"
     const val STOOQ_CSV = "https://stooq.com/q/l/?s=%s&f=sd2t2ohlcv&h&e=csv"
 
+    // CVM open data (official, free) — historical earnings for B3 companies.
+    const val CVM_FCA_TICKERS = "https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC/FCA/DADOS/fca_cia_aberta_%d.zip"
+    const val CVM_FCA_TICKERS_CSV = "fca_cia_aberta_valor_mobiliario_%d.csv"
+    const val CVM_DFP_ZIP = "https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC/DFP/DADOS/dfp_cia_aberta_%d.zip"
+    const val CVM_DFP_DRE_CSV = "dfp_cia_aberta_DRE_con_%d.csv"
+
+    // Fiscal years of DFP packages to ingest. Each package contains the current
+    // and previous fiscal year, so N packages cover N+1 fiscal years. Five
+    // packages (2021..2025) cover FY2020..FY2025 → a true 5-year CAGR.
+    // One-time download on Wi-Fi (~200 MB total); results are cached in Room.
+    val CVM_DFP_YEARS = listOf(2025, 2024, 2023, 2022, 2021)
+
+    // Fundamentus net-income account (DRE consolidado).
+    const val CVM_NET_INCOME_ACCOUNT = "3.11"
+
+    const val CVM_USER_AGENT = "LynchScreenerApp/1.0 (lds1804@gmail.com)"
+
     // Rate limiting (conservative).
     const val SEC_MIN_INTERVAL_MS = 350L                       // ~3 req/s
     const val FUNDAMENTUS_DETAIL_MIN_MS = 1500L                 // 1.5s

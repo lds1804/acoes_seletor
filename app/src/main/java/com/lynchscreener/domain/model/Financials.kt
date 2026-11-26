@@ -23,6 +23,13 @@ data class Financials(
     val roic: Double? = null,
     val dividendYield: Double? = null,
     val cagr5y: Double? = null,
+    /**
+     * 5-year CAGR of NET INCOME (fraction). Preferred over [cagr5y] by the
+     * scoring engine because Peter Lynch defines PEGY on earnings growth.
+     */
+    val earningsCagr5y: Double? = null,
+    /** False when the company posted a loss in any of the last 5 fiscal years. */
+    val earningsConsistent: Boolean? = null,
     val netDebt: Double? = null,
     val totalDebt: Double? = null,
     val cashAndEquivalents: Double? = null,

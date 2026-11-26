@@ -35,6 +35,16 @@ data class FundamentalsEntity(
     val earningsConsistent: Boolean? = null,
     /** Annual net income history as JSON {"2021":123.4,...} for the detail screen. */
     val earningsHistoryJson: String? = null,
+    /**
+     * Equity attributable to the controlling shareholders (CVM BPP), in BRL.
+     * Kept apart from [equity] so the UI can explain the basis used.
+     */
+    val equityControllers: Double? = null,
+    /**
+     * `CONTROLLERS` or `CONSOLIDATED` — which shareholder group the reported
+     * earnings/equity refer to (see [com.lynchscreener.data.remote.dto.EarningsBasis]).
+     */
+    val earningsBasis: String? = null,
     val pegy: Double?,
     /** Positive = net debt, negative = net cash. */
     val netDebt: Double?,

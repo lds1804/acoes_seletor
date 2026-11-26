@@ -13,9 +13,11 @@ import kotlin.math.roundToInt
  * Produces a 0..100 score from normalized [Financials]. No Android dependencies,
  * fully unit-testable.
  *
- * Sector sensitivity: financial companies (banks/insurers) are NOT scored on
- * debt leverage, because liabilities are their raw material. Their points are
- * redistributed to ROE, P/VP, P/L and dividend yield (see [isFinancialSector]).
+ * Sector sensitivity: BANKS and INSURERS are not scored on debt leverage,
+ * because liabilities are their raw material. Insurance brokers, payment
+ * processors, asset managers and holdings keep the leverage rule — they carry
+ * real corporate debt (debentures, earn-outs) even when their B3 sector is
+ * placed under "Previdência e Seguros".
  */
 class LynchScoringEngine {
 
@@ -24,6 +26,12 @@ class LynchScoringEngine {
     // ---------------------------------------------------------------------
 
     companion object {
+        /**
+         * Bump whenever the scoring rules change, so already persisted scores are
+         * recomputed on the next launch ([com.lynchscreener.data.repository.AssetRepository.rescoreAll]).
+         */
+        const val SCORING_ENGINE_VERSION = 2
+
         // Non-financial sectors.
         private const val W_PEGY = 30.0
         private const val W_PROFITABILITY = 25.0
@@ -38,10 +46,40 @@ class LynchScoringEngine {
         private const val WF_PE = 15.0
         private const val WF_DIVIDEND = 15.0
 
-        private val FINANCIAL_KEYWORDS = listOf(
-            "bank", "banco", "bancário", "bancario", "financial", "financeiro", "financeira",
-            "insurance", "segur", "securitizadora",
-            "instituições financeiras", "instituicoes financeiras",
+        /**
+         * Dividend yield used in the PEGY denominator is capped here.
+         *
+         * Without the cap a 14–15% yield alone pushes PEGY to 0.2, awarding full
+         * marks to a company whose earnings do not grow at all.
+         */
+        const val MAX_DY_FOR_PEGY = 0.08
+
+        /** Max share of the PEGY weight when earnings growth is zero/negative. */
+        private const val NO_GROWTH_PEGY_FRACTION = 0.34
+
+        /** A Value Trap cannot present itself as an 80+ opportunity. */
+        private const val VALUE_TRAP_CEILING = 65
+
+        /** Below this ROE the score is capped regardless of how cheap it looks. */
+        const val MIN_ROE = 0.12
+        private const val LOW_ROE_CEILING = 68
+
+        private val FINANCIAL_EXCLUDED_KEYWORDS = listOf(
+            "corretora de seguros", "corretoras de seguros", "insurance broker",
+            "serviços financeiros diversos", "servicos financeiros diversos",
+            "meios de pagamento", "pagamento", "gestão de recursos", "gestao de recursos",
+            "asset management", "capital markets", "bolsa", "securitizadora",
+            "exploração de imóveis", "exploracao de imoveis", "holding", "participações",
+            "participacoes", "consumer finance", "crédito", "credito",
+        )
+
+        private val BANK_KEYWORDS = listOf(
+            "banco", "bancos", "bancário", "bancario", "intermediários financeiros",
+            "intermediarios financeiros", "bank", "banks",
+        )
+
+        private val INSURER_KEYWORDS = listOf(
+            "seguradora", "seguradoras", "insurance", "resseguro", "previdência", "previdencia",
         )
 
         private val CYCLICAL_KEYWORDS = listOf(
@@ -51,8 +89,26 @@ class LynchScoringEngine {
             "veículos", "veiculos", "airline", "aére", "aere", "avia", "agro",
         )
 
-        fun isFinancialSector(sector: String?): Boolean =
-            sector?.let { s -> FINANCIAL_KEYWORDS.any { s.lowercase().contains(it) } } ?: false
+        /**
+         * True only for banks and insurers, where debt is operational.
+         *
+         * [subsector] is required to separate them from brokers: B3 files
+         * "Corretoras de Seguros" under the same sector as "Seguradoras".
+         */
+        fun isFinancialSector(sector: String?, subsector: String? = null): Boolean {
+            val s = sector?.lowercase().orEmpty()
+            val sub = subsector?.lowercase().orEmpty()
+            if (s.isBlank() && sub.isBlank()) return false
+
+            // Exclusions win: these carry ordinary corporate debt.
+            if (FINANCIAL_EXCLUDED_KEYWORDS.any { sub.contains(it) || s.contains(it) }) return false
+
+            if (BANK_KEYWORDS.any { s.contains(it) || sub.contains(it) }) return true
+            if (INSURER_KEYWORDS.any { s.contains(it) || sub.contains(it) }) return true
+
+            // US (SEC/GICS) only exposes the sector, no subsector.
+            return sub.isBlank() && (s == "financials" || s == "financial")
+        }
 
         fun isCyclicalSector(sector: String?): Boolean =
             sector?.let { s -> CYCLICAL_KEYWORDS.any { s.lowercase().contains(it) } } ?: false
@@ -93,23 +149,65 @@ class LynchScoringEngine {
             )
         }
 
-        val components = if (isFinancialSector(financials.sector)) {
+        val components = if (isFinancialSector(financials.sector, financials.subsector)) {
             scoreFinancial(financials, pe, pegy)
         } else {
             scoreGeneral(financials, pe, pegy, netCashToMc)
         }
 
-        val raw = components.sumOf { it.points }.coerceIn(0.0, 100.0)
-        val totalScore = raw.roundToInt()
         val category = classify(financials, pe, pegy)
+
+        // Round each criterion FIRST, then sum: the breakdown shown in the UI must
+        // add up to exactly the number inside the ring.
+        val baseScore = components.sumOf { it.points.roundToInt() }
+        val (totalScore, adjustment) = applyCeilings(baseScore, category, financials)
 
         return LynchScore(
             totalScore = totalScore,
             category = category,
             pegy = pegy,
             netCashToMarketCap = netCashToMc,
-            components = components,
+            components = if (adjustment != null) components + adjustment else components,
             disqualifiers = emptyList(),
+            baseScore = baseScore,
+        )
+    }
+
+    /**
+     * Applies the hard ceilings that keep cheap-but-weak companies out of the
+     * top of the ranking.
+     *
+     * A ceiling is reported as an explicit negative component so the "Raio-X"
+     * screen can show it (and so the visible sum still matches the ring).
+     */
+    private fun applyCeilings(
+        baseScore: Int,
+        category: LynchCategory,
+        f: Financials,
+    ): Pair<Int, ScoreComponent?> {
+        var ceiling = 100
+        val reasons = mutableListOf<String>()
+
+        if (category == LynchCategory.VALUE_TRAP) {
+            ceiling = minOf(ceiling, VALUE_TRAP_CEILING)
+            reasons += "Value Trap: nota limitada a $VALUE_TRAP_CEILING."
+        }
+
+        val roe = f.roe
+        if (roe != null && roe < MIN_ROE) {
+            ceiling = minOf(ceiling, LOW_ROE_CEILING)
+            reasons += "ROE de ${roe.pct()} abaixo de ${MIN_ROE.pct()}: nota limitada a " +
+                "$LOW_ROE_CEILING, pois desconto e dividendo não substituem rentabilidade."
+        }
+
+        if (baseScore <= ceiling || reasons.isEmpty()) return baseScore to null
+
+        return ceiling to ScoreComponent(
+            key = "CEILING",
+            label = "Teto aplicado",
+            points = (ceiling - baseScore).toDouble(),
+            maxPoints = 0.0,
+            rationale = reasons.joinToString(" "),
         )
     }
 
@@ -139,8 +237,11 @@ class LynchScoringEngine {
     private fun computePegy(f: Financials, pe: Double?): Double? {
         if (pe == null || pe <= 0.0) return null
         val growth = f.earningsCagr5y ?: f.cagr5y ?: return null
-        val yield = f.dividendYield ?: 0.0
-        val denominator = (growth + yield) * 100.0
+        // Yield is capped (see MAX_DY_FOR_PEGY) and growth is floored at zero: a
+        // shrinking company must not convert a big dividend into a low PEGY.
+        val effectiveDy = (f.dividendYield ?: 0.0).coerceIn(0.0, MAX_DY_FOR_PEGY)
+        val effectiveGrowth = growth.coerceAtLeast(0.0)
+        val denominator = (effectiveGrowth + effectiveDy) * 100.0
         if (denominator <= 0.0) return null
         return pe / denominator
     }
@@ -189,11 +290,12 @@ class LynchScoringEngine {
         netCashToMc: Double?,
     ): List<ScoreComponent> {
         val profitability = profitabilityMetric(f)
+        val growth = f.earningsCagr5y ?: f.cagr5y
         return listOf(
             ScoreComponent(
                 key = "pegy", label = "PEGY",
-                points = scorePegy(pegy, W_PEGY), maxPoints = W_PEGY,
-                rationale = pegyRationale(pegy),
+                points = scorePegy(pegy, W_PEGY, growth), maxPoints = W_PEGY,
+                rationale = pegyRationale(pegy, growth),
             ),
             ScoreComponent(
                 key = "profitability", label = "Rentabilidade (ROE/ROIC)",
@@ -224,11 +326,12 @@ class LynchScoringEngine {
 
     private fun scoreFinancial(f: Financials, pe: Double?, pegy: Double?): List<ScoreComponent> {
         val profitability = profitabilityMetric(f)
+        val growth = f.earningsCagr5y ?: f.cagr5y
         return listOf(
             ScoreComponent(
                 key = "pegy", label = "PEGY",
-                points = scorePegy(pegy, WF_PEGY), maxPoints = WF_PEGY,
-                rationale = pegyRationale(pegy),
+                points = scorePegy(pegy, WF_PEGY, growth), maxPoints = WF_PEGY,
+                rationale = pegyRationale(pegy, growth),
             ),
             ScoreComponent(
                 key = "profitability", label = "Rentabilidade (ROE/ROIC)",
@@ -264,7 +367,7 @@ class LynchScoringEngine {
         else -> null
     }
 
-    private fun scorePegy(pegy: Double?, max: Double): Double {
+    private fun scorePegy(pegy: Double?, max: Double, growth: Double?): Double {
         if (pegy == null) return 0.0
         val fraction = when {
             pegy < 0.5 -> 1.00
@@ -273,7 +376,13 @@ class LynchScoringEngine {
             pegy < 2.0 -> 0.20
             else -> 0.0
         }
-        return max * fraction
+        val points = max * fraction
+        // No earnings growth → dividend alone cannot buy full PEGY credit.
+        return if (growth == null || growth <= 0.0) {
+            points.coerceAtMost(max * NO_GROWTH_PEGY_FRACTION)
+        } else {
+            points
+        }
     }
 
     private fun scoreProfitability(profitability: Double?, max: Double): Double {
@@ -406,13 +515,19 @@ class LynchScoringEngine {
     // Rationale strings (for the "Raio-X" screen)
     // ---------------------------------------------------------------------
 
-    private fun pegyRationale(pegy: Double?): String = when {
-        pegy == null -> "PEGY indisponível (crescimento ou lucro ausente/negativo)."
-        pegy < 0.5 -> "PEGY de ${pegy.round2()} — subvalorizado em relação ao crescimento."
-        pegy < 1.0 -> "PEGY de ${pegy.round2()} — preço justo frente ao crescimento."
-        pegy < 1.5 -> "PEGY de ${pegy.round2()} — levemente acima do ideal."
-        pegy < 2.0 -> "PEGY de ${pegy.round2()} — caro para o crescimento entregue."
-        else -> "PEGY de ${pegy.round2()} — muito caro; penalizado."
+    private fun pegyRationale(pegy: Double?, growth: Double? = null): String {
+        if (growth != null && growth <= 0.0) {
+            return "PEGY de ${pegy?.round2() ?: "—"} sem crescimento de lucro — " +
+                "dividendo não substitui crescimento; critério limitado."
+        }
+        return when {
+            pegy == null -> "PEGY indisponível (crescimento ou lucro ausente/negativo)."
+            pegy < 0.5 -> "PEGY de ${pegy.round2()} — subvalorizado em relação ao crescimento."
+            pegy < 1.0 -> "PEGY de ${pegy.round2()} — preço justo frente ao crescimento."
+            pegy < 1.5 -> "PEGY de ${pegy.round2()} — levemente acima do ideal."
+            pegy < 2.0 -> "PEGY de ${pegy.round2()} — caro para o crescimento entregue."
+            else -> "PEGY de ${pegy.round2()} — muito caro; penalizado."
+        }
     }
 
     private fun profitabilityRationale(p: Double?): String = when {

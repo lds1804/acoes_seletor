@@ -8,7 +8,9 @@ import com.lynchscreener.data.local.entity.FundamentalsEntity
 import com.lynchscreener.data.remote.HttpConfig
 import com.lynchscreener.data.remote.dto.B3Details
 import com.lynchscreener.data.remote.dto.B3TableRow
+import com.lynchscreener.data.remote.dto.CvmCompanyRaw
 import com.lynchscreener.data.remote.dto.CvmEarnings
+import com.lynchscreener.data.remote.dto.EarningsBasis
 import com.lynchscreener.data.remote.dto.SecFundamentals
 import com.lynchscreener.data.remote.dto.Sp500Entry
 import com.lynchscreener.domain.LynchScoringEngine
@@ -17,6 +19,7 @@ import com.lynchscreener.domain.model.LynchCategory
 import com.lynchscreener.domain.model.Market
 import com.lynchscreener.domain.model.RankedCompany
 import com.lynchscreener.domain.model.ScoreComponent
+import com.lynchscreener.worker.SyncEventLog
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -84,26 +87,205 @@ class AssetRepository(
     suspend fun countPendingEarnings(): Int = assetDao.countPendingEarnings()
 
     /**
-     * Applies the CVM earnings history to the fundamentals of each ticker and
-     * recomputes the Lynch score (PEGY now uses net-income CAGR).
+     * Applies the CVM data to the fundamentals of each ticker and recomputes the
+     * Lynch score.
+     *
+     * Besides the earnings history (PEGY + consistency), this rebases P/L, P/VP
+     * and ROE on the PARENT-COMPANY slice when the balance sheet is available:
+     * all three are then derived from the same figures, so the identity
+     * `P/L = P/VP / ROE` holds by construction instead of depending on three
+     * independently scraped numbers.
      */
-    suspend fun applyEarningsBatch(tickerToEarnings: Map<String, CvmEarnings>): Int {
+    suspend fun applyEarningsBatch(tickerToData: Map<String, CvmCompanyRaw>): Int {
         var updated = 0
-        for ((ticker, earnings) in tickerToEarnings) {
+        for ((ticker, raw) in tickerToData) {
             val asset = assetDao.getByTicker(ticker) ?: continue
             val prev = fundamentalsDao.getByTicker(ticker) ?: continue
 
             // No earnings found (e.g. no CNPJ match): still mark as attempted
             // ("{}") so the costly CVM download is not retried forever.
-            if (earnings.isEmpty) {
+            if (raw.isEmpty) {
                 fundamentalsDao.upsert(prev.copy(earningsHistoryJson = "{}"))
                 continue
             }
+
+            val earnings = CvmEarnings.from(raw.netIncomeByYear)
+            val statement = parentBasis(prev, asset.marketCap, raw, earnings)
 
             val financials = Financials(
                 ticker = ticker,
                 market = Market.BR,
                 sector = asset.sector,
+                subsector = asset.subsector,
+                price = asset.price ?: 0.0,
+                pe = statement.pe,
+                pb = statement.pb,
+                roe = statement.roe,
+                roic = prev.roic,
+                dividendYield = prev.dividendYield,
+                cagr5y = prev.cagr5y,
+                earningsCagr5y = earnings.cagr5y,
+                earningsConsistent = earnings.consistent,
+                netDebt = prev.netDebt,
+                totalDebt = null,
+                cashAndEquivalents = null,
+                equity = statement.equity,
+                netIncome12m = statement.netIncome,
+                sharesOutstanding = prev.sharesOutstanding,
+                marketCap = asset.marketCap,
+                liquidity = prev.liquidity,
+            )
+            val score = engine.score(financials)
+
+            fundamentalsDao.upsert(
+                prev.copy(
+                    pe = statement.pe,
+                    pb = statement.pb,
+                    roe = statement.roe,
+                    equity = statement.equity,
+                    netIncome12m = statement.netIncome,
+                    equityControllers = raw.equityControllers,
+                    earningsBasis = raw.basis.name,
+                    earningsCagr5y = earnings.cagr5y,
+                    earningsConsistent = earnings.consistent,
+                    earningsHistoryJson = encodeEarnings(earnings.netIncomeByYear),
+                    pegy = score.pegy,
+                    netCashToMarketCap = score.netCashToMarketCap,
+                    lynchScore = score.totalScore,
+                    lynchCategory = score.category.label,
+                    breakdownJson = encodeBreakdown(score.components),
+                )
+            )
+            updated++
+        }
+        return updated
+    }
+
+    /**
+     * Ratios derived from the parent-company slice of the latest fiscal year.
+     *
+     * Fallback chain per field keeps previously scraped values when the CVM
+     * statement is missing or the company reports a loss (a loss makes P/L
+     * meaningless, and the engine disqualifies it anyway).
+     */
+    private data class StatementBasis(
+        val pe: Double?,
+        val pb: Double?,
+        val roe: Double?,
+        val equity: Double?,
+        val netIncome: Double?,
+    )
+
+    private fun parentBasis(
+        prev: FundamentalsEntity,
+        marketCap: Double?,
+        raw: CvmCompanyRaw,
+        earnings: CvmEarnings,
+    ): StatementBasis {
+        val income = raw.latestNetIncome ?: earnings.netIncomeByYear.maxByOrNull { it.key }?.value
+        val equity = raw.equityControllers
+        val cap = marketCap
+
+        if (income == null || income <= 0.0 || equity == null || equity <= 0.0 ||
+            cap == null || cap <= 0.0
+        ) {
+            // Keep what we had, but still repair a leaked quarterly income.
+            val repairedIncome = impliedIncome(prev.pe, cap) ?: prev.netIncome12m
+            return StatementBasis(prev.pe, prev.pb, prev.roe, prev.equity, repairedIncome)
+        }
+
+        val pe = cap / income
+        val pb = cap / equity
+        val roe = income / equity
+
+        // The scraped multiples came from a different basis (consolidated, other
+        // date). Log when the rebase is material so a wrong CNPJ match is visible.
+        val previousPe = prev.pe
+        if (previousPe != null && previousPe > 0.0) {
+            val shift = kotlin.math.abs(pe / previousPe - 1.0)
+            if (shift > 0.40) {
+                SyncEventLog.log(
+                    "B3 ${prev.ticker}: P/L rebaseado ${fmt(previousPe)} → ${fmt(pe)} " +
+                        "(${raw.basis.label}, lucro ${raw.latestYear ?: "?"})",
+                )
+            }
+        }
+
+        return StatementBasis(pe = pe, pb = pb, roe = roe, equity = equity, netIncome = income)
+    }
+
+    private fun fmt(value: Double): String = "%.2f".format(value)
+
+    // -----------------------------------------------------------------
+    // Sanity checks shared by B3 and US
+    // -----------------------------------------------------------------
+
+    /**
+     * Net income implied by the P/L multiple. Fundamentus' "Lucro Líquido" cell is
+     * a PERIOD value for some companies (a single quarter), which produced
+     * P/L = 25.9 next to ROE = 65% — the income must match the multiple.
+     */
+    private fun impliedIncome(pe: Double?, marketCap: Double?): Double? {
+        if (pe == null || pe <= 0.0) return null
+        if (marketCap == null || marketCap <= 0.0) return null
+        return marketCap / pe
+    }
+
+    /**
+     * Logs when `P/L ≈ P/VP / ROE` does not hold. The three multiples describe the
+     * same balance sheet, so a >15% deviation means they came from different
+     * periods or different shareholder bases.
+     */
+    private fun coherenceWarning(
+        ticker: String,
+        market: String,
+        pe: Double?,
+        pb: Double?,
+        roe: Double?,
+        expectedPe: Double?,
+    ) {
+        if (pe == null || pb == null || roe == null) return
+        if (pe <= 0.0 || pb <= 0.0 || roe <= 0.0) return
+        val expected = expectedPe ?: (pb / roe)
+        if (expected <= 0.0) return
+        val deviation = kotlin.math.abs(pe / expected - 1.0)
+        if (deviation <= 0.15) return
+        SyncEventLog.log(
+            "Aviso $market $ticker: P/L ${fmt(pe)} vs P/VP ${fmt(pb)} / ROE " +
+                "${fmt(roe * 100)}% => esperado ${fmt(expected)} " +
+                "(desvio ${(deviation * 100).toInt()}%)",
+        )
+    }
+
+    // -----------------------------------------------------------------
+    // Scoring-engine migration
+    // -----------------------------------------------------------------
+
+    /**
+     * Recomputes every persisted score with the current engine rules.
+     *
+     * Called once after the app is upgraded, so a rule change (PEGY cap, score
+     * ceilings, sector exception) reaches rows collected by older versions. The
+     * user portfolio table is untouched.
+     *
+     * Also invalidates CVM histories that predate the parent-company basis: their
+     * JSON only holds numbers, with no way to know which shareholder group they
+     * belong to, so they must be re-ingested.
+     *
+     * @return number of fundamentals re-scored.
+     */
+    suspend fun rescoreAll(): Int {
+        val assets = assetDao.getAll().associateBy { it.ticker }
+        val all = fundamentalsDao.getAll()
+        var rescored = 0
+
+        for (prev in all) {
+            val asset = assets[prev.ticker] ?: continue
+            val financials = Financials(
+                ticker = prev.ticker,
+                market = Market.fromCode(asset.market),
+                sector = asset.sector,
+                subsector = asset.subsector,
                 price = asset.price ?: 0.0,
                 pe = prev.pe,
                 pb = prev.pb,
@@ -111,8 +293,8 @@ class AssetRepository(
                 roic = prev.roic,
                 dividendYield = prev.dividendYield,
                 cagr5y = prev.cagr5y,
-                earningsCagr5y = earnings.cagr5y,
-                earningsConsistent = earnings.consistent,
+                earningsCagr5y = prev.earningsCagr5y,
+                earningsConsistent = prev.earningsConsistent,
                 netDebt = prev.netDebt,
                 totalDebt = null,
                 cashAndEquivalents = null,
@@ -123,21 +305,20 @@ class AssetRepository(
                 liquidity = prev.liquidity,
             )
             val score = engine.score(financials)
-
             fundamentalsDao.upsert(
                 prev.copy(
-                    earningsCagr5y = earnings.cagr5y,
-                    earningsConsistent = earnings.consistent,
-                    earningsHistoryJson = encodeEarnings(earnings.netIncomeByYear),
                     pegy = score.pegy,
+                    netCashToMarketCap = score.netCashToMarketCap,
                     lynchScore = score.totalScore,
                     lynchCategory = score.category.label,
                     breakdownJson = encodeBreakdown(score.components),
                 )
             )
-            updated++
+            rescored++
         }
-        return updated
+
+        fundamentalsDao.resetPreBasisEarnings()
+        return rescored
     }
 
     // -----------------------------------------------------------------
@@ -267,6 +448,7 @@ class AssetRepository(
                     ticker = row.ticker,
                     market = Market.BR,
                     sector = prevAssets[row.ticker]?.sector,
+                    subsector = prevAssets[row.ticker]?.subsector,
                     price = row.price ?: 0.0,
                     pe = row.pe,
                     pb = row.pb,
@@ -332,10 +514,25 @@ class AssetRepository(
             price != null && price > 0.0 && marketCap != null -> marketCap / price
             else -> prev?.sharesOutstanding
         }
+
+        // Fundamentus' "Lucro Líquido" cell is a period figure for some companies
+        // (a single quarter), which made P/L and the income disagree by 3–4x.
+        // Trust the P/L multiple and derive the 12-month figure when they diverge.
+        val implied = impliedIncome(prev?.pe, marketCap)
+        val reportedIncome = details.netIncome12m ?: prev?.netIncome12m
+        val netIncome = when {
+            implied == null || implied <= 0.0 -> reportedIncome
+            reportedIncome == null || reportedIncome <= 0.0 -> implied
+            kotlin.math.abs(reportedIncome / implied - 1.0) > 0.15 -> implied
+            else -> reportedIncome
+        }
+
+        val equity = details.equity ?: prev?.equity
         val financials = Financials(
             ticker = ticker,
             market = Market.BR,
             sector = details.sector ?: asset.sector,
+            subsector = details.subsector ?: asset.subsector,
             price = price ?: 0.0,
             pe = prev?.pe,
             pb = prev?.pb,
@@ -348,13 +545,14 @@ class AssetRepository(
             netDebt = details.netDebt ?: prev?.netDebt,
             totalDebt = null,
             cashAndEquivalents = details.cash,
-            equity = details.equity ?: prev?.equity,
-            netIncome12m = details.netIncome12m ?: prev?.netIncome12m,
+            equity = equity,
+            netIncome12m = netIncome,
             sharesOutstanding = shares,
             marketCap = marketCap,
             liquidity = prev?.liquidity,
         )
         val score = engine.score(financials)
+        coherenceWarning(ticker, "B3", prev?.pe, prev?.pb, prev?.roe, expectedPe = null)
 
         assetDao.upsert(
             asset.copy(
@@ -376,13 +574,15 @@ class AssetRepository(
                 earningsCagr5y = prev?.earningsCagr5y,
                 earningsConsistent = prev?.earningsConsistent,
                 earningsHistoryJson = prev?.earningsHistoryJson,
+                equityControllers = prev?.equityControllers,
+                earningsBasis = prev?.earningsBasis,
                 dividendYield = prev?.dividendYield,
                 cagr5y = prev?.cagr5y,
                 pegy = score.pegy,
                 netDebt = details.netDebt ?: prev?.netDebt,
                 netCashToMarketCap = score.netCashToMarketCap,
-                equity = details.equity ?: prev?.equity,
-                netIncome12m = details.netIncome12m ?: prev?.netIncome12m,
+                equity = equity,
+                netIncome12m = netIncome,
                 sharesOutstanding = shares,
                 dividendPerShare = prev?.dividendPerShare,
                 liquidity = prev?.liquidity,
@@ -432,6 +632,7 @@ class AssetRepository(
             ticker = ticker,
             market = Market.US,
             sector = asset.sector,
+            subsector = asset.subsector,
             price = price ?: 0.0,
             pe = pe,
             pb = pb,
@@ -522,6 +723,7 @@ class AssetRepository(
                 ticker = ticker,
                 market = market,
                 sector = asset.sector,
+                subsector = asset.subsector,
                 price = price,
                 pe = pe,
                 pb = pb,

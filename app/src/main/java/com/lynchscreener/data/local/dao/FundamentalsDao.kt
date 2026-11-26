@@ -32,6 +32,25 @@ interface FundamentalsDao {
     @Query("SELECT * FROM fundamentals WHERE ticker IN (:tickers)")
     suspend fun getByTickers(tickers: List<String>): List<FundamentalsEntity>
 
+    /** Every fundamentals row, used by the scoring-engine migration (re-score all). */
+    @Query("SELECT * FROM fundamentals")
+    suspend fun getAll(): List<FundamentalsEntity>
+
+    /**
+     * Clears a CVM history that predates the parent-company basis, forcing the
+     * CVM worker to re-ingest it (the JSON has no way to tell which shareholder
+     * group the numbers belong to).
+     */
+    @Query(
+        """
+        UPDATE fundamentals
+        SET earningsHistoryJson = NULL
+        WHERE earningsHistoryJson IS NOT NULL AND earningsBasis IS NULL
+          AND ticker IN (SELECT ticker FROM assets WHERE market = 'BR')
+        """
+    )
+    suspend fun resetPreBasisEarnings(): Int
+
     /** Invalidate existing ranks before recomputing (Etapa 3). */
     @Query("UPDATE fundamentals SET overallRank = NULL, sectorRank = NULL")
     suspend fun clearRanks()

@@ -35,6 +35,8 @@ data class RankedCompany(
     val earningsConsistent: Boolean?,
     /** JSON object `{"2020":1234.5,…}` with net income per fiscal year. */
     val earningsHistoryJson: String?,
+    /** `CONTROLLERS` or `CONSOLIDATED` — which shareholder group the series uses. */
+    val earningsBasis: String?,
     val priceUpdatedAt: Long?,
     val fundamentalsUpdatedAt: Long?,
 )

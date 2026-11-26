@@ -14,6 +14,13 @@ data class Financials(
     val ticker: String,
     val market: Market = Market.BR,
     val sector: String? = null,
+    /**
+     * B3 subsector (e.g. "Bancos", "Seguradoras", "Corretoras de Seguros").
+     * Required to tell a bank/insurer — which legitimately runs on debt — from an
+     * insurance broker, which does not. Null for the US universe (SEC only
+     * publishes the GICS sector).
+     */
+    val subsector: String? = null,
     val price: Double = 0.0,
     /** Earnings per share (TTM). Used to derive P/E when [pe] is null. */
     val earningsPerShare: Double? = null,

@@ -33,6 +33,8 @@ data class DetailUiState(
     val earningsHistory: List<EarningsYear> = emptyList(),
     /** True when the company reported the DFP and no losses in the window. */
     val earningsConsistent: Boolean? = null,
+    /** `CONTROLLERS` or `CONSOLIDATED` — basis of the reported net income. */
+    val earningsBasis: String? = null,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -76,6 +78,7 @@ class DetailViewModel(
             components = components,
             earningsHistory = earnings,
             earningsConsistent = company.earningsConsistent,
+            earningsBasis = company.earningsBasis,
         )
     }
 

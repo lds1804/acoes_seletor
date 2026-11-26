@@ -26,6 +26,10 @@ interface AssetDao {
     @Query("SELECT * FROM assets WHERE market = :market")
     suspend fun getByMarket(market: String): List<AssetEntity>
 
+    /** Every asset, used by the scoring-engine migration (re-score all). */
+    @Query("SELECT * FROM assets")
+    suspend fun getAll(): List<AssetEntity>
+
     /**
      * Next batch for the slow fundamentals queue: least-recently-updated first,
      * excluding the ones currently being synced. This is the checkpoint cursor
@@ -157,6 +161,7 @@ interface AssetDao {
                f.earningsCagr5y AS earningsCagr5y,
                f.earningsConsistent AS earningsConsistent,
                f.earningsHistoryJson AS earningsHistoryJson,
+               f.earningsBasis AS earningsBasis,
                a.priceUpdatedAt AS priceUpdatedAt,
                a.fundamentalsUpdatedAt AS fundamentalsUpdatedAt
         FROM assets a
@@ -185,6 +190,7 @@ interface AssetDao {
                f.earningsCagr5y AS earningsCagr5y,
                f.earningsConsistent AS earningsConsistent,
                f.earningsHistoryJson AS earningsHistoryJson,
+               f.earningsBasis AS earningsBasis,
                a.priceUpdatedAt AS priceUpdatedAt,
                a.fundamentalsUpdatedAt AS fundamentalsUpdatedAt
         FROM assets a

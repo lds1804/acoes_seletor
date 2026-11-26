@@ -45,6 +45,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlin.math.roundToInt
 import com.lynchscreener.domain.LynchScoringEngine
 import com.lynchscreener.domain.model.Market
 import com.lynchscreener.domain.model.RankedCompany
@@ -121,7 +122,7 @@ fun StockDetailScreen(viewModel: DetailViewModel, onBack: () -> Unit) {
         }
 
         val market = Market.fromCode(company.market)
-        val isFinancial = LynchScoringEngine.isFinancialSector(company.sector)
+        val isFinancial = LynchScoringEngine.isFinancialSector(company.sector, company.subsector)
 
         LazyColumn(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
@@ -238,16 +239,40 @@ private fun ScoreBreakdownCard(components: List<ScoreComponent>, isFinancial: Bo
         } else {
             components.forEach { component ->
                 val isDisqualified = component.key == "DISQUALIFIED"
+                val isCeiling = component.key == "CEILING"
+                // Round each criterion exactly like the engine does, so the sum of
+                // the numbers on screen equals the score inside the ring.
+                val shown = component.points.roundToInt()
                 Column(Modifier.padding(vertical = 6.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(component.label, style = MaterialTheme.typography.bodyMedium, color = colors.textPrimary, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                        if (!isDisqualified && component.maxPoints > 0) {
-                            Text("${component.points.toInt()}/${component.maxPoints.toInt()} pts", style = MaterialTheme.typography.labelMedium, color = colors.accentPrimary, fontWeight = FontWeight.Bold)
+                        Text(
+                            component.label,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (isCeiling) colors.scoreNeutral else colors.textPrimary,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.weight(1f),
+                        )
+                        when {
+                            isCeiling -> Text(
+                                "$shown pts",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = colors.scoreNeutral,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            !isDisqualified && component.maxPoints > 0 -> Text(
+                                "$shown/${component.maxPoints.roundToInt()} pts",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = colors.accentPrimary,
+                                fontWeight = FontWeight.Bold,
+                            )
                         }
                     }
-                    if (!isDisqualified && component.maxPoints > 0) {
+                    if (!isDisqualified && !isCeiling && component.maxPoints > 0) {
                         Spacer(Modifier.height(6.dp))
-                        val animated by animateFloatAsState(targetValue = (component.points / component.maxPoints).toFloat().coerceIn(0f, 1f), label = "componentBar")
+                        val animated by animateFloatAsState(
+                            targetValue = (component.points / component.maxPoints).toFloat().coerceIn(0f, 1f),
+                            label = "componentBar",
+                        )
                         LinearProgressIndicator(
                             progress = { animated },
                             color = colors.accentPrimary,
@@ -256,8 +281,29 @@ private fun ScoreBreakdownCard(components: List<ScoreComponent>, isFinancial: Bo
                         )
                     }
                     Spacer(Modifier.height(4.dp))
-                    Text(component.rationale, style = MaterialTheme.typography.bodySmall, color = colors.textSecondary)
+                    Text(
+                        component.rationale,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isCeiling) colors.scoreNeutral else colors.textSecondary,
+                    )
                 }
+            }
+
+            // Reconciliation line: proves the breakdown adds up to the ring.
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Soma dos critérios",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.textMuted,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    "${components.sumOf { it.points.roundToInt() }} pts",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = colors.textPrimary,
+                    fontWeight = FontWeight.Bold,
+                )
             }
         }
     }
@@ -292,7 +338,11 @@ private fun EarningsCard(state: com.lynchscreener.ui.detail.DetailUiState) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(
-                    text = "Lucro líquido consolidado",
+                    text = if (state.earningsBasis == "CONSOLIDATED") {
+                        "Lucro líquido (Consolidado)"
+                    } else {
+                        "Lucro líquido (Controladores)"
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = colors.textMuted,
                 )

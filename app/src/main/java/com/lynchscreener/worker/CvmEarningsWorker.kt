@@ -5,8 +5,10 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.lynchscreener.data.remote.CvmClient
 import com.lynchscreener.data.remote.HttpConfig
-import com.lynchscreener.data.remote.dto.CvmEarnings
+import com.lynchscreener.data.remote.dto.CvmCompanyRaw
+import com.lynchscreener.data.remote.dto.EarningsBasis
 import com.lynchscreener.data.repository.AssetRepository
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -69,22 +71,30 @@ class CvmEarningsWorker(
 
             if (cnpjs.isEmpty()) {
                 // Nothing to look up — record "no data" so the loop stops.
-                repository.applyEarningsBatch(tickers.associateWith { CvmEarnings.from(emptyMap()) })
+                repository.applyEarningsBatch(
+                    tickers.associateWith { CvmCompanyRaw() },
+                )
                 SyncProgress.finish()
                 cleanup()
                 return Result.success()
             }
 
             val partial = readPartial()
-            val yearData = client.fetchNetIncomeByCnpj(
+            val yearData = client.fetchCompanyData(
                 cnpjs = cnpjs,
                 years = listOf(year),
                 onProgress = { SyncEventLog.log("CVM: $it") },
                 onBytes = SyncProgress::onBytes,
             )
-            for ((cnpj, byYear) in yearData) {
-                val target = partial.getOrPut(cnpj) { mutableMapOf() }
-                for ((fy, value) in byYear) target.putIfAbsent(fy, value)
+            for ((cnpj, company) in yearData) {
+                val target = partial[cnpj] ?: PartialCompany()
+                val merged = target.netIncome + company.netIncomeByYear.mapKeys { it.key.toString() }
+                partial[cnpj] = target.copy(
+                    netIncome = merged,
+                    basis = company.basis.name,
+                    equity = company.equityControllers ?: target.equity,
+                    latestYear = company.latestYear ?: target.latestYear,
+                )
             }
 
             val remaining = pendingYears.drop(1)
@@ -109,15 +119,19 @@ class CvmEarningsWorker(
     private suspend fun applyToDatabase(tickers: Set<String>): Result {
         val partial = readPartial()
         val tickerToCnpj = readCachedCnpj().orEmpty()
-        val tickerToEarnings = tickers.associateWith { ticker ->
+        val tickerToData = tickers.associateWith { ticker ->
             val cnpj = tickerToCnpj[ticker]
-            val raw = cnpj?.let { partial[it] } ?: emptyMap()
-            CvmEarnings.from(raw)
+            val stored = cnpj?.let { partial[it] }
+            stored?.toRaw() ?: CvmCompanyRaw()
         }
-        val updated = repository.applyEarningsBatch(tickerToEarnings)
-        val withData = tickerToEarnings.count { it.value.netIncomeByYear.isNotEmpty() }
-        val withLoss = tickerToEarnings.count { it.value.consistent == false }
-        SyncEventLog.log("CVM: $updated ativos com histórico ($withData com série, $withLoss com prejuízo)")
+        val updated = repository.applyEarningsBatch(tickerToData)
+        val withData = tickerToData.count { it.value.netIncomeByYear.isNotEmpty() }
+        val controllers = tickerToData.count { it.value.basis == EarningsBasis.CONTROLLERS }
+        val withEquity = tickerToData.count { it.value.equityControllers != null }
+        SyncEventLog.log(
+            "CVM: $updated ativos com histórico ($withData com série, " +
+                "$controllers na base controladores, $withEquity com PL)",
+        )
         SyncProgress.finish()
         cleanup()
         return Result.success()
@@ -137,22 +151,12 @@ class CvmEarningsWorker(
         runCatching { pendingFile.writeText(json.encodeToString(years)) }
     }
 
-    private fun readPartial(): MutableMap<String, MutableMap<Int, Double>> {
-        val decoded = runCatching {
-            json.decodeFromString<Map<String, Map<String, Double>>>(partialFile.readText())
-        }.getOrNull() ?: return mutableMapOf()
-        // Fiscal years are stored as string keys (JSON object keys are strings).
-        return decoded.mapValues { (_, byYear) ->
-            byYear.mapNotNull { (year, value) -> year.toIntOrNull()?.let { it to value } }
-                .toMap().toMutableMap()
-        }.toMutableMap()
-    }
+    private fun readPartial(): MutableMap<String, PartialCompany> = runCatching {
+        json.decodeFromString<Map<String, PartialCompany>>(partialFile.readText()).toMutableMap()
+    }.getOrDefault(mutableMapOf())
 
-    private fun writePartial(partial: Map<String, Map<Int, Double>>) {
-        val encoded = partial.mapValues { (_, byYear) ->
-            byYear.mapKeys { it.key.toString() }
-        }
-        runCatching { partialFile.writeText(json.encodeToString(encoded)) }
+    private fun writePartial(partial: Map<String, PartialCompany>) {
+        runCatching { partialFile.writeText(json.encodeToString(partial)) }
     }
 
     private fun readCachedCnpj(): Map<String, String>? = runCatching {
@@ -178,5 +182,30 @@ class CvmEarningsWorker(
         const val PARTIAL_FILE = "cvm_earnings_partial.json"
         const val PENDING_FILE = "cvm_earnings_pending.json"
         const val CNPJ_FILE = "cvm_ticker_cnpj.json"
+    }
+}
+
+/**
+ * Scratch representation of one company between worker runs. Fiscal years are
+ * string keys because JSON object keys are strings.
+ */
+@Serializable
+private data class PartialCompany(
+    val netIncome: Map<String, Double> = emptyMap(),
+    val basis: String = EarningsBasis.CONSOLIDATED.name,
+    val equity: Double? = null,
+    val latestYear: Int? = null,
+) {
+    fun toRaw(): CvmCompanyRaw {
+        val byYear = netIncome.mapNotNull { (year, value) ->
+            year.toIntOrNull()?.let { it to value }
+        }.toMap()
+        return CvmCompanyRaw(
+            netIncomeByYear = byYear.toSortedMap(),
+            basis = runCatching { EarningsBasis.valueOf(basis) }
+                .getOrDefault(EarningsBasis.CONSOLIDATED),
+            equityControllers = equity,
+            latestYear = latestYear ?: byYear.keys.maxOrNull(),
+        )
     }
 }

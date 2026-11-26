@@ -32,6 +32,9 @@ object HttpConfig {
     const val CVM_DFP_ZIP = "https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC/DFP/DADOS/dfp_cia_aberta_%d.zip"
     const val CVM_DFP_DRE_CSV = "dfp_cia_aberta_DRE_con_%d.csv"
 
+    /** Balance sheet (BPP consolidado): used for parent-company equity. */
+    const val CVM_DFP_BPP_CSV = "dfp_cia_aberta_BPP_con_%d.csv"
+
     // Fiscal years of DFP packages to ingest. Each package contains the current
     // and previous fiscal year, so N packages cover N+1 fiscal years. Five
     // packages (2021..2025) cover FY2020..FY2025 → a true 5-year CAGR.

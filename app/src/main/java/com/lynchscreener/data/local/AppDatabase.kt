@@ -17,7 +17,7 @@ import com.lynchscreener.data.local.entity.PortfolioPositionEntity
         FundamentalsEntity::class,
         PortfolioPositionEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -43,6 +43,18 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE fundamentals ADD COLUMN earningsCagr5y REAL")
                 db.execSQL("ALTER TABLE fundamentals ADD COLUMN earningsConsistent INTEGER")
                 db.execSQL("ALTER TABLE fundamentals ADD COLUMN earningsHistoryJson TEXT")
+            }
+        }
+
+        /**
+         * Parent-company basis: equity attributable to controllers and which
+         * basis the reported earnings use. Existing rows stay NULL and are
+         * refilled by [com.lynchscreener.data.repository.AssetRepository.rescoreAll].
+         */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE fundamentals ADD COLUMN equityControllers REAL")
+                db.execSQL("ALTER TABLE fundamentals ADD COLUMN earningsBasis TEXT")
             }
         }
     }

@@ -30,6 +30,20 @@ jobs:
           # AGP 8.7.3 requer Gradle 8.9+; sem wrapper, instala esta versão.
           gradle-version: 8.11.1
 
+      - name: Rodar testes unitários
+        # Gate de qualidade: parser de períodos da CVM, calibração do score
+        # (teto de PEGY/Value Trap/ROE, exceção bancária) e consistência
+        # aritmética do raio-X. Falha aqui bloqueia o APK.
+        run: gradle testDebugUnitTest --no-daemon
+
+      - name: Publicar relatório de testes
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: test-report
+          path: app/build/reports/tests/testDebugUnitTest
+          if-no-files-found: ignore
+
       - name: Compilar APK de debug
         run: gradle assembleDebug --no-daemon
 

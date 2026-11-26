@@ -2,6 +2,7 @@ package com.lynchscreener.domain
 
 import com.lynchscreener.domain.model.Financials
 import com.lynchscreener.domain.model.LynchCategory
+import com.lynchscreener.domain.model.LynchFlag
 import com.lynchscreener.domain.model.LynchScore
 import com.lynchscreener.domain.model.ScoreComponent
 import kotlin.math.round

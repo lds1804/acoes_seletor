@@ -13,12 +13,11 @@ data class LynchScore(
      * the `CEILING` component so the breakdown always reconciles.
      */
     val baseScore: Int = 0,
+    /** Risk / data-quality alerts (profit drop, atypical yield, thin equity…). */
+    val flags: List<LynchFlag> = emptyList(),
 ) {
     val isDisqualified: Boolean get() = disqualifiers.isNotEmpty()
 
     /** True when a ceiling lowered the score. */
     val isCapped: Boolean get() = totalScore < baseScore
-
-    /** Risk / data-quality alerts (profit drop, atypical yield, thin equity…). */
-    val flags: List<LynchFlag> = emptyList()
 }

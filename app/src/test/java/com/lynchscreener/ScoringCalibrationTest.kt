@@ -6,6 +6,7 @@ import com.lynchscreener.domain.model.Financials
 import com.lynchscreener.domain.model.LynchCategory
 import com.lynchscreener.domain.model.Market
 import com.lynchscreener.domain.model.ScoreComponent
+import kotlin.math.roundToInt
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -275,7 +276,7 @@ class ScoringCalibrationTest {
 }
 
 /** Same rounding the engine uses, so the test mirrors the UI exactly. */
-private fun Double.toIntRounded(): Int = kotlin.math.roundToInt()
+private fun Double.toIntRounded(): Int = this.roundToInt()
 
 @Suppress("unused")
 private fun ScoreComponent.shownPoints(): Int = points.toIntRounded()

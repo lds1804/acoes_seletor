@@ -71,6 +71,7 @@ import com.lynchscreener.domain.model.RankingItem
 import com.lynchscreener.domain.model.SectorStats
 import com.lynchscreener.ui.components.IndicatorValue
 import com.lynchscreener.ui.components.PulsingDot
+import com.lynchscreener.ui.components.SearchField
 import com.lynchscreener.ui.components.SegmentedPill
 import com.lynchscreener.ui.components.StockRankCard
 import com.lynchscreener.ui.components.sectorIcon
@@ -130,44 +131,10 @@ fun RankingScreen(
             Spacer(Modifier.height(10.dp))
 
             Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
-                    value = state.query,
-                    onValueChange = viewModel::setQuery,
-                    placeholder = {
-                        Text(
-                            "Buscar ticker ou empresa",
-                            color = colors.textMuted,
-                            fontSize = 13.sp,
-                            lineHeight = TextUnit.Unspecified,
-                            maxLines = 1,
-                        )
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Rounded.Search, null, tint = colors.textMuted, modifier = Modifier.size(18.dp))
-                    },
-                    trailingIcon = {
-                        if (state.query.isNotEmpty()) {
-                            IconButton(onClick = { viewModel.setQuery("") }, modifier = Modifier.size(28.dp)) {
-                                Icon(Icons.Rounded.Close, null, tint = colors.textMuted, modifier = Modifier.size(16.dp))
-                            }
-                        }
-                    },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(
-                        fontSize = 13.sp,
-                        lineHeight = TextUnit.Unspecified,
-                    ),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = colors.surfaceElevated,
-                        unfocusedContainerColor = colors.surfaceElevated,
-                        focusedBorderColor = colors.accentPrimary,
-                        unfocusedBorderColor = colors.borderSubtle,
-                        cursorColor = colors.accentPrimary,
-                        focusedTextColor = colors.textPrimary,
-                        unfocusedTextColor = colors.textPrimary,
-                    ),
-                    modifier = Modifier.weight(1f).height(44.dp),
+                SearchField(
+                    query = state.query,
+                    onQueryChange = viewModel::setQuery,
+                    modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(8.dp))
                 Box {

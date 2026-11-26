@@ -231,7 +231,9 @@ class AssetRepository(
                     equity = prev?.equity,
                     netIncome12m = prev?.netIncome12m,
                     sharesOutstanding = prev?.sharesOutstanding,
-                    dividendPerShare = prev?.dividendPerShare,
+                    // Fundamentus only gives the DY ratio; derive trailing DPS so
+                    // DY can be recalculated when the price moves.
+                    dividendPerShare = deriveDps(row.dividendYield, row.price, prev?.dividendPerShare),
                     liquidity = row.liquidity,
                     lynchScore = score.totalScore,
                     lynchCategory = score.category.label,
@@ -258,7 +260,6 @@ class AssetRepository(
             price != null && price > 0.0 && marketCap != null -> marketCap / price
             else -> prev?.sharesOutstanding
         }
-
         val financials = Financials(
             ticker = ticker,
             market = Market.BR,
@@ -477,6 +478,15 @@ class AssetRepository(
         if (first <= 0.0 || last <= 0.0) return null
         val years = (history.size - 1).toDouble()
         return Math.pow(last / first, 1.0 / years) - 1.0
+    }
+
+    /** DPS ≈ DY × price (both from the same snapshot), falling back to the previous value. */
+    private fun deriveDps(dividendYield: Double?, price: Double?, previous: Double?): Double? {
+        if (dividendYield != null && price != null && price > 0.0) {
+            val dps = dividendYield * price
+            if (dps > 0.0) return dps
+        }
+        return previous
     }
 
     private fun encodeBreakdown(components: List<ScoreComponent>): String? =

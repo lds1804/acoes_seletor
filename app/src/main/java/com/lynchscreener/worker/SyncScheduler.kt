@@ -148,4 +148,47 @@ object SyncScheduler {
     }
 
     private const val INITIAL_SYNC_KEY = "initial_sync_done_v2"
+
+    // -----------------------------------------------------------------
+    // Self-chaining continuations: each worker appends the next batch of the
+    // same queue when there is still pending data, so a fresh install catches
+    // up in minutes instead of waiting for the next periodic window (3h/6h).
+    // -----------------------------------------------------------------
+
+    fun continueB3Details(context: Context) {
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            CHAIN_B3_DETAILS,
+            ExistingWorkPolicy.APPEND_OR_REPLACE,
+            OneTimeWorkRequestBuilder<B3DetailsWorker>()
+                .setConstraints(SyncConstraints.default())
+                .addTag(SyncMonitor.SYNC_TAG)
+                .build()
+        )
+    }
+
+    fun continueSec(context: Context) {
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            CHAIN_SEC,
+            ExistingWorkPolicy.APPEND_OR_REPLACE,
+            OneTimeWorkRequestBuilder<SecBalancesWorker>()
+                .setConstraints(SyncConstraints.default())
+                .addTag(SyncMonitor.SYNC_TAG)
+                .build()
+        )
+    }
+
+    fun continuePrices(context: Context) {
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            CHAIN_PRICES,
+            ExistingWorkPolicy.APPEND_OR_REPLACE,
+            OneTimeWorkRequestBuilder<PriceRefreshWorker>()
+                .setConstraints(SyncConstraints.default())
+                .addTag(SyncMonitor.SYNC_TAG)
+                .build()
+        )
+    }
+
+    private const val CHAIN_B3_DETAILS = "chain_b3_details"
+    private const val CHAIN_SEC = "chain_sec"
+    private const val CHAIN_PRICES = "chain_prices"
 }

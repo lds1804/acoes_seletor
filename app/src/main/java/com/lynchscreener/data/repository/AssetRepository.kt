@@ -41,7 +41,10 @@ class AssetRepository(
         assetDao.nextFundamentalsBatch(Market.BR.code, HttpConfig.B3_DETAILS_BATCH)
 
     suspend fun nextSecBalanceBatch(): List<AssetEntity> =
-        assetDao.nextSecBalanceBatch(HttpConfig.SEC_STALENESS_MS, HttpConfig.SEC_BALANCE_BATCH)
+        assetDao.nextSecBalanceBatch(
+            cutoff = System.currentTimeMillis() - HttpConfig.SEC_STALENESS_MS,
+            limit = HttpConfig.SEC_BALANCE_BATCH,
+        )
 
     suspend fun nextPriceBatch(market: Market): List<AssetEntity> =
         assetDao.nextPriceBatch(market.code, HttpConfig.PRICE_BATCH)
@@ -62,6 +65,13 @@ class AssetRepository(
     /** Number of tickers in [market] that already have a price (for progress). */
     suspend fun countWithPrice(market: Market): Int =
         assetDao.countWithPrice(market.code)
+
+    /** Tickers still missing fundamentals — used by the self-chaining workers. */
+    suspend fun countPendingFundamentals(market: Market): Int =
+        assetDao.countPendingFundamentals(market.code)
+
+    /** Tickers still missing a price. */
+    suspend fun countPendingPrices(): Int = assetDao.countPendingPrices()
 
     // -----------------------------------------------------------------
     // Read models for the UI (Etapa 3)
@@ -411,7 +421,15 @@ class AssetRepository(
 
         assetDao.updatePrice(ticker, price, marketCap, System.currentTimeMillis())
 
-        if (prev != null) {
+        // Placeholder rows (seeded US universe before SEC runs) have no
+        // fundamentals at all — skip scoring so we don't persist a bogus
+        // "score 0 / Stalwart" that would pollute the ranking.
+        val hasFundamentals = prev != null && (
+            prev.pe != null || prev.roe != null || prev.netIncome12m != null ||
+                prev.equity != null || prev.pb != null
+            )
+
+        if (prev != null && hasFundamentals) {
             val financials = Financials(
                 ticker = ticker,
                 market = market,

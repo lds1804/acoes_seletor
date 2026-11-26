@@ -22,9 +22,10 @@ class PriceRefreshWorker(
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result = try {
+        var succeeded = 0
         for (market in listOf(Market.BR, Market.US)) {
             val batch = repository.nextPriceBatch(market)
-            SyncEventLog.log("Cotações ${market.code}: lote de ${batch.size}")
+            if (batch.isNotEmpty()) SyncEventLog.log("Cotações ${market.code}: lote de ${batch.size}")
             for (asset in batch) {
                 repository.setSyncing(asset.ticker)
                 try {
@@ -32,6 +33,7 @@ class PriceRefreshWorker(
                     if (quote != null) {
                         repository.applyPrice(asset.ticker, market, quote.price, quote.timestampSec)
                         repository.setSynced(asset.ticker)
+                        succeeded++
                     } else {
                         repository.markError(asset.ticker, "Sem cotação disponível")
                     }
@@ -41,8 +43,17 @@ class PriceRefreshWorker(
                 delay(HttpConfig.PRICE_MIN_INTERVAL_MS)
             }
         }
+
+        // Self-chain while some tickers still lack a price.
+        val pending = repository.countPendingPrices()
+        if (succeeded > 0 && pending > 0) {
+            SyncEventLog.log("Cotações: $pending restantes — enfileirando próximo lote")
+            SyncScheduler.continuePrices(applicationContext)
+        }
+
         Result.success()
     } catch (e: Exception) {
+        SyncEventLog.log("Cotações: falha — ${e.message ?: e.javaClass.simpleName}")
         Result.retry()
     }
 }

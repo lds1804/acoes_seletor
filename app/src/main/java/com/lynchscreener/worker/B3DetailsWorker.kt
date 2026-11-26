@@ -29,6 +29,7 @@ class B3DetailsWorker(
         val already = repository.countWithFundamentals(Market.BR)
         SyncEventLog.log("B3 Detalhes: lote de ${batch.size} (já com detalhes: $already)")
         var done = 0
+        var succeeded = 0
 
         for (asset in batch) {
             done++
@@ -39,13 +40,25 @@ class B3DetailsWorker(
                 val details = FundamentusParser.parseDetails(html)
                 repository.applyB3Details(asset.ticker, details)
                 repository.setSynced(asset.ticker)
+                succeeded++
             } catch (e: Exception) {
                 repository.markError(asset.ticker, e.message ?: "Erro ao detalhar")
             }
             delay(Random.nextLong(HttpConfig.FUNDAMENTUS_DETAIL_MIN_MS, HttpConfig.FUNDAMENTUS_DETAIL_MAX_MS))
         }
+
+        // Self-chain: keep going while there are pending tickers and we made progress.
+        val pending = repository.countPendingFundamentals(Market.BR)
+        if (succeeded > 0 && pending > 0) {
+            SyncEventLog.log("B3 Detalhes: $pending restantes — enfileirando próximo lote")
+            SyncScheduler.continueB3Details(applicationContext)
+        } else if (pending == 0) {
+            SyncEventLog.log("B3 Detalhes: fila concluída (${already + succeeded} ativos)")
+        }
+
         Result.success()
     } catch (e: Exception) {
+        SyncEventLog.log("B3 Detalhes: falha — ${e.message ?: e.javaClass.simpleName}")
         Result.retry()
     }
 }

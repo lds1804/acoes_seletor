@@ -62,6 +62,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lynchscreener.domain.Ranking
 import com.lynchscreener.domain.model.Market
@@ -131,17 +132,22 @@ fun RankingScreen(
                 OutlinedTextField(
                     value = state.query,
                     onValueChange = viewModel::setQuery,
-                    placeholder = { Text("Buscar ticker ou empresa…", color = colors.textMuted) },
-                    leadingIcon = { Icon(Icons.Rounded.Search, null, tint = colors.textMuted) },
+                    placeholder = {
+                        Text("Buscar ticker ou empresa", color = colors.textMuted, fontSize = 13.sp)
+                    },
+                    leadingIcon = {
+                        Icon(Icons.Rounded.Search, null, tint = colors.textMuted, modifier = Modifier.size(18.dp))
+                    },
                     trailingIcon = {
                         if (state.query.isNotEmpty()) {
-                            IconButton(onClick = { viewModel.setQuery("") }) {
-                                Icon(Icons.Rounded.Close, null, tint = colors.textMuted)
+                            IconButton(onClick = { viewModel.setQuery("") }, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Rounded.Close, null, tint = colors.textMuted, modifier = Modifier.size(16.dp))
                             }
                         }
                     },
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp),
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = colors.surfaceElevated,
                         unfocusedContainerColor = colors.surfaceElevated,

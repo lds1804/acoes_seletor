@@ -23,6 +23,7 @@ class SecBalancesWorker(
 
     override suspend fun doWork(): Result = try {
         val batch = repository.nextSecBalanceBatch()
+        SyncEventLog.log("SEC: lote de ${batch.size} empresas (CIK)")
 
         for (asset in batch) {
             val cik = asset.cik ?: continue

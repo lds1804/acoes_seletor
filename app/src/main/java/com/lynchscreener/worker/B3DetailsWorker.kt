@@ -27,6 +27,7 @@ class B3DetailsWorker(
     override suspend fun doWork(): Result = try {
         val batch = repository.nextB3DetailsBatch()
         val already = repository.countWithFundamentals(Market.BR)
+        SyncEventLog.log("B3 Detalhes: lote de ${batch.size} (já com detalhes: $already)")
         var done = 0
 
         for (asset in batch) {

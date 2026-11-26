@@ -21,13 +21,17 @@ class B3TableWorker(
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result = try {
+        SyncEventLog.log("B3: buscando tabela geral do Fundamentus")
         val html = client.fetchResultTable()
         val rows = FundamentusParser.parseResultTable(html)
+        SyncEventLog.log("B3: ${rows.size} linhas lidas")
         if (rows.isEmpty()) throw IOException("Tabela do Fundamentus vazia")
 
         val kept = repository.replaceB3Table(rows)
+        SyncEventLog.log("B3: $kept ativos gravados (liquidez ≥ R$ 500 mil)")
         Result.success(workDataOf("kept" to kept))
     } catch (e: Exception) {
+        SyncEventLog.log("B3: falha — ${e.message ?: e.javaClass.simpleName}")
         Result.retry()
     }
 }

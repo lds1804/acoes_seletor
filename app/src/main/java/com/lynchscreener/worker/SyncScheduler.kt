@@ -114,4 +114,33 @@ object SyncScheduler {
         WorkManager.getInstance(context)
             .enqueueUniqueWork("refresh_$ticker", ExistingWorkPolicy.REPLACE, request)
     }
+
+    /**
+     * Dispara a primeira sincronização assim que o app é instalado/aberto pela
+     * primeira vez, para que o banco não fique vazio à espera dos workers
+     * periódicos (24h/3h/6h). Idempotente via SharedPreferences.
+     */
+    fun triggerInitialIfNeeded(context: Context) {
+        val prefs = context.getSharedPreferences("sync_state", Context.MODE_PRIVATE)
+        if (prefs.getBoolean("initial_sync_done", false)) return
+        prefs.edit().putBoolean("initial_sync_done", true).apply()
+
+        SyncEventLog.log("Primeira execução: disparando sincronização inicial")
+        val constraints = SyncConstraints.default()
+        val seed = OneTimeWorkRequestBuilder<SeedUniverseWorker>()
+            .setConstraints(constraints).addTag(SyncMonitor.SYNC_TAG).build()
+        val table = OneTimeWorkRequestBuilder<B3TableWorker>()
+            .setConstraints(constraints).addTag(SyncMonitor.SYNC_TAG).build()
+        val details = OneTimeWorkRequestBuilder<B3DetailsWorker>()
+            .setConstraints(constraints).addTag(SyncMonitor.SYNC_TAG).build()
+        val price = OneTimeWorkRequestBuilder<PriceRefreshWorker>()
+            .setConstraints(constraints).addTag(SyncMonitor.SYNC_TAG).build()
+
+        WorkManager.getInstance(context)
+            .beginUniqueWork("initial_sync", ExistingWorkPolicy.KEEP, seed)
+            .then(table)
+            .then(details)
+            .then(price)
+            .enqueue()
+    }
 }

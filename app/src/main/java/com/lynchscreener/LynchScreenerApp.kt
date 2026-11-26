@@ -31,5 +31,6 @@ class LynchScreenerApp : Application() {
         )
 
         SyncScheduler.scheduleAll(this, container.syncSettings)
+        SyncScheduler.triggerInitialIfNeeded(this)
     }
 }

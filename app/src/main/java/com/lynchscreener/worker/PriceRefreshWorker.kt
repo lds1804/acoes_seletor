@@ -24,6 +24,7 @@ class PriceRefreshWorker(
     override suspend fun doWork(): Result = try {
         for (market in listOf(Market.BR, Market.US)) {
             val batch = repository.nextPriceBatch(market)
+            SyncEventLog.log("Cotações ${market.code}: lote de ${batch.size}")
             for (asset in batch) {
                 repository.setSyncing(asset.ticker)
                 try {

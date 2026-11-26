@@ -169,9 +169,16 @@ class CvmClient(
                 val cnpj = cells.getOrNull(idx.cnpj)?.trim().orEmpty()
                 if (cnpj !in cnpjs) continue
 
-                val start = cells.getOrNull(idx.startDate)
                 val end = cells.getOrNull(idx.endDate)
-                if (!CvmPeriod.isAnnual(start, end)) continue
+                if (end.isNullOrBlank()) continue
+                // The DRE declares DT_INI_EXERC (periods), the BPP is a snapshot
+                // and only declares DT_FIM_EXERC, so the annual guard can only be
+                // applied when a start date exists.
+                if (idx.startDate >= 0 &&
+                    !CvmPeriod.isAnnual(cells.getOrNull(idx.startDate), end)
+                ) {
+                    continue
+                }
                 val fy = CvmPeriod.fiscalYear(end) ?: continue
 
                 val value = cells.getOrNull(idx.value)?.trim()?.toDoubleOrNull() ?: continue

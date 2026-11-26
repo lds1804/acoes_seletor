@@ -104,21 +104,29 @@ interface AssetDao {
     @Query("SELECT COUNT(*) FROM assets WHERE priceUpdatedAt IS NULL")
     suspend fun countPendingPrices(): Int
 
-    /** B3 tickers whose CVM earnings history was not ingested yet. */
+    /**
+     * B3 tickers whose CVM earnings history was not ingested yet.
+     *
+     * The INNER JOIN is essential: the history is written into `fundamentals`,
+     * so an asset without that row could never be marked as processed and would
+     * stay pending forever (the worker self-chains, so that would loop).
+     */
     @Query(
         """
-        SELECT ticker FROM assets
-        WHERE market = 'BR'
-          AND ticker NOT IN (SELECT ticker FROM fundamentals WHERE earningsHistoryJson IS NOT NULL)
+        SELECT a.ticker FROM assets a
+        INNER JOIN fundamentals f ON a.ticker = f.ticker
+        WHERE a.market = 'BR'
+          AND f.earningsHistoryJson IS NULL
         """
     )
     suspend fun pendingEarningsTickers(): List<String>
 
     @Query(
         """
-        SELECT COUNT(*) FROM assets
-        WHERE market = 'BR'
-          AND ticker NOT IN (SELECT ticker FROM fundamentals WHERE earningsHistoryJson IS NOT NULL)
+        SELECT COUNT(*) FROM assets a
+        INNER JOIN fundamentals f ON a.ticker = f.ticker
+        WHERE a.market = 'BR'
+          AND f.earningsHistoryJson IS NULL
         """
     )
     suspend fun countPendingEarnings(): Int

@@ -9,11 +9,11 @@ import org.jsoup.Jsoup
  * cell yields `null` rather than throwing, so a single broken row never kills
  * the whole batch.
  *
- * resultado.php column order (0-based):
+ * resultado.php column order (0-based) — confirmed against live thead:
  * 0 Papel, 1 Cotação, 2 P/L, 3 P/VP, 4 PSR, 5 Div.Yield, 6 P/Ativo,
  * 7 P/Cap.Giro, 8 P/EBIT, 9 P/Ativ Circ.Liq, 10 EV/EBIT, 11 EV/EBITDA,
- * 12 Mrg Ebit, 13 Mrg. Líq., 14 Liq. Corr., 15 ROIC, 16 ROE, 17 Liq.2meses,
- * 18 Patrim. Líq, 19 Dív.Brut/ Patrim., 20 Cresc. Rec.5a
+ * 12 Mrg Bruta, 13 Mrg Ebit, 14 Mrg. Líq., 15 Liq. Corr., 16 ROIC, 17 ROE,
+ * 18 Liq.2meses, 19 Patrim. Líq, 20 Dív.Líq/Patrim., 21 Cresc. Rec.5a
  */
 object FundamentusParser {
 
@@ -34,12 +34,12 @@ object FundamentusParser {
                 pe = BrNumber.toDouble(cells[2].text()),
                 pb = BrNumber.toDouble(cells[3].text()),
                 dividendYield = BrNumber.toFraction(cells[5].text()),
-                roe = BrNumber.toFraction(cells[16].text()),
-                roic = BrNumber.toFraction(cells[15].text()),
+                roe = BrNumber.toFraction(cells[17].text()),
+                roic = BrNumber.toFraction(cells[16].text()),
                 evEbit = BrNumber.toDouble(cells[10].text()),
-                debtToEquity = BrNumber.toDouble(cells[19].text()),
-                cagr5y = BrNumber.toFraction(cells[20].text()),
-                liquidity = BrNumber.toDouble(cells[17].text()),
+                debtToEquity = BrNumber.toDouble(cells[20].text()),
+                cagr5y = BrNumber.toFraction(cells[21].text()),
+                liquidity = BrNumber.toDouble(cells[18].text()),
             )
         }
         return rows

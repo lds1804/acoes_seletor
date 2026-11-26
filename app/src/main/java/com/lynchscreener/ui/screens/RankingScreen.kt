@@ -61,6 +61,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -133,7 +134,13 @@ fun RankingScreen(
                     value = state.query,
                     onValueChange = viewModel::setQuery,
                     placeholder = {
-                        Text("Buscar ticker ou empresa", color = colors.textMuted, fontSize = 13.sp)
+                        Text(
+                            "Buscar ticker ou empresa",
+                            color = colors.textMuted,
+                            fontSize = 13.sp,
+                            lineHeight = TextUnit.Unspecified,
+                            maxLines = 1,
+                        )
                     },
                     leadingIcon = {
                         Icon(Icons.Rounded.Search, null, tint = colors.textMuted, modifier = Modifier.size(18.dp))
@@ -147,7 +154,10 @@ fun RankingScreen(
                     },
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp),
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp),
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                        fontSize = 13.sp,
+                        lineHeight = TextUnit.Unspecified,
+                    ),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = colors.surfaceElevated,
                         unfocusedContainerColor = colors.surfaceElevated,

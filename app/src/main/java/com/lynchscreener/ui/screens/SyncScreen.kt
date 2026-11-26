@@ -55,6 +55,7 @@ import com.lynchscreener.ui.components.PulsingDot
 import com.lynchscreener.ui.sync.SyncViewModel
 import com.lynchscreener.ui.theme.LocalLynchColors
 import com.lynchscreener.worker.SyncProgress
+import com.lynchscreener.worker.SyncStatus
 
 @Composable
 fun SyncScreen(viewModel: SyncViewModel) {
@@ -90,7 +91,7 @@ fun SyncScreen(viewModel: SyncViewModel) {
                 }
             }
 
-            item { GlobalStatusCard(state.syncStatus.isSyncing) }
+            item { GlobalStatusCard(state.syncStatus) }
 
             if (state.download.active) {
                 item { DownloadCard(state.download) }
@@ -145,37 +146,78 @@ fun SyncScreen(viewModel: SyncViewModel) {
 }
 
 @Composable
-private fun GlobalStatusCard(isSyncing: Boolean) {
+private fun GlobalStatusCard(status: SyncStatus) {
     val colors = LocalLynchColors.current
+    val isSyncing = status.isSyncing
+    val isWaiting = status.isWaiting
     Surface(
         shape = RoundedCornerShape(18.dp),
         color = if (isSyncing) colors.surfaceElevated else colors.surfaceCard,
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, if (isSyncing) colors.accentPrimary.copy(alpha = 0.4f) else colors.borderSubtle, RoundedCornerShape(18.dp))
+            .border(
+                width = 1.dp,
+                color = when {
+                    isSyncing -> colors.accentPrimary.copy(alpha = 0.4f)
+                    isWaiting -> colors.scoreNeutral.copy(alpha = 0.4f)
+                    else -> colors.borderSubtle
+                },
+                shape = RoundedCornerShape(18.dp),
+            )
             .animateContentSize(),
     ) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            PulsingDot(color = if (isSyncing) colors.accentPrimary else colors.positive)
+            PulsingDot(
+                color = when {
+                    isSyncing -> colors.accentPrimary
+                    isWaiting -> colors.scoreNeutral
+                    else -> colors.positive
+                },
+            )
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
-                    if (isSyncing) "Sincronizando…" else "Base atualizada",
+                    text = when {
+                        isSyncing -> "Sincronizando…"
+                        isWaiting -> "Aguardando condições"
+                        else -> "Base atualizada"
+                    },
                     style = MaterialTheme.typography.titleMedium,
                     color = colors.textPrimary,
                     fontWeight = FontWeight.Bold,
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    if (isSyncing) "O WorkManager está processando as filas em segundo plano."
-                    else "Nenhuma sincronização ativa no momento.",
+                    text = when {
+                        isSyncing -> "O WorkManager está processando as filas em segundo plano."
+                        // The heavy CVM download is Wi-Fi-only on purpose (~400 MB).
+                        isWaiting -> "${status.enqueuedTasks} tarefa(s) na fila. O download da CVM " +
+                            "só roda no Wi-Fi; outras filas podem exigir carregador."
+                        else -> "Nenhuma sincronização ativa no momento."
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = colors.textSecondary,
                 )
             }
-            if (!isSyncing) {
-                Surface(color = colors.positive.copy(alpha = 0.14f), shape = RoundedCornerShape(8.dp)) {
-                    Text("OK", color = colors.positive, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+            when {
+                isSyncing -> Unit
+                isWaiting -> Surface(color = colors.scoreNeutral.copy(alpha = 0.14f), shape = RoundedCornerShape(8.dp)) {
+                    Text(
+                        "PENDENTE",
+                        color = colors.scoreNeutral,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                }
+                else -> Surface(color = colors.positive.copy(alpha = 0.14f), shape = RoundedCornerShape(8.dp)) {
+                    Text(
+                        "OK",
+                        color = colors.positive,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
                 }
             }
         }

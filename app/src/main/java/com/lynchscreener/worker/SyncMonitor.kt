@@ -12,6 +12,12 @@ data class SyncStatus(
 ) {
     val isSyncing: Boolean get() = runningTasks > 0
     val hasWork: Boolean get() = runningTasks + enqueuedTasks > 0
+
+    /**
+     * Work exists but none is running — usually a constraint is unmet (the
+     * heavy CVM download waits for Wi-Fi, the slow queue may wait for charging).
+     */
+    val isWaiting: Boolean get() = runningTasks == 0 && enqueuedTasks > 0
 }
 
 /**

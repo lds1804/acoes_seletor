@@ -100,7 +100,7 @@ object SyncScheduler {
         val price = OneTimeWorkRequestBuilder<PriceRefreshWorker>()
             .setConstraints(constraints).addTag(SyncMonitor.SYNC_TAG).build()
         val cvm = OneTimeWorkRequestBuilder<CvmEarningsWorker>()
-            .setConstraints(constraints).addTag(SyncMonitor.SYNC_TAG).build()
+            .setConstraints(SyncConstraints.heavyDownload()).addTag(SyncMonitor.SYNC_TAG).build()
 
         WorkManager.getInstance(context)
             .beginUniqueWork("manual_sync", ExistingWorkPolicy.REPLACE, table)
@@ -152,7 +152,7 @@ object SyncScheduler {
         val sec = OneTimeWorkRequestBuilder<SecBalancesWorker>()
             .setConstraints(constraints).addTag(SyncMonitor.SYNC_TAG).build()
         val cvm = OneTimeWorkRequestBuilder<CvmEarningsWorker>()
-            .setConstraints(constraints).addTag(SyncMonitor.SYNC_TAG).build()
+            .setConstraints(SyncConstraints.heavyDownload()).addTag(SyncMonitor.SYNC_TAG).build()
 
         WorkManager.getInstance(context)
             .beginUniqueWork("initial_sync", ExistingWorkPolicy.KEEP, seed)
@@ -211,7 +211,7 @@ object SyncScheduler {
             CHAIN_CVM,
             ExistingWorkPolicy.APPEND_OR_REPLACE,
             OneTimeWorkRequestBuilder<CvmEarningsWorker>()
-                .setConstraints(SyncConstraints.default())
+                .setConstraints(SyncConstraints.heavyDownload())
                 .addTag(SyncMonitor.SYNC_TAG)
                 .build()
         )

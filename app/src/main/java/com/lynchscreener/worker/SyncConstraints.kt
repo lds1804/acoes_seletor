@@ -26,4 +26,16 @@ object SyncConstraints {
         .setRequiredNetworkType(if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED)
         .setRequiresBatteryNotLow(true)
         .build()
+
+    /**
+     * Heavy one-shot download (~60–80 MB per CVM package, ~400 MB total).
+     * Always Wi-Fi, regardless of the user preference, so a first sync cannot
+     * silently consume hundreds of megabytes of mobile data. Charging is not
+     * required — otherwise a fresh install would show an empty app until the
+     * phone is plugged in.
+     */
+    fun heavyDownload(): Constraints = Constraints.Builder()
+        .setRequiredNetworkType(NetworkType.UNMETERED)
+        .setRequiresBatteryNotLow(true)
+        .build()
 }

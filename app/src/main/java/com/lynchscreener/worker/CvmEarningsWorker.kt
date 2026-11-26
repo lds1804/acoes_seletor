@@ -7,6 +7,7 @@ import com.lynchscreener.data.remote.CvmClient
 import com.lynchscreener.data.remote.HttpConfig
 import com.lynchscreener.data.remote.dto.CvmEarnings
 import com.lynchscreener.data.repository.AssetRepository
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
 
@@ -125,13 +126,20 @@ class CvmEarningsWorker(
 
     private fun readPartial(): MutableMap<String, MutableMap<Int, Double>> {
         val decoded = runCatching {
-            json.decodeFromString<Map<String, Map<Int, Double>>>(partialFile.readText())
+            json.decodeFromString<Map<String, Map<String, Double>>>(partialFile.readText())
         }.getOrNull() ?: return mutableMapOf()
-        return decoded.mapValues { it.value.toMutableMap() }.toMutableMap()
+        // Fiscal years are stored as string keys (JSON object keys are strings).
+        return decoded.mapValues { (_, byYear) ->
+            byYear.mapNotNull { (year, value) -> year.toIntOrNull()?.let { it to value } }
+                .toMap().toMutableMap()
+        }.toMutableMap()
     }
 
     private fun writePartial(partial: Map<String, Map<Int, Double>>) {
-        runCatching { partialFile.writeText(json.encodeToString(partial)) }
+        val encoded = partial.mapValues { (_, byYear) ->
+            byYear.mapKeys { it.key.toString() }
+        }
+        runCatching { partialFile.writeText(json.encodeToString(encoded)) }
     }
 
     private fun readCachedCnpj(): Map<String, String>? = runCatching {

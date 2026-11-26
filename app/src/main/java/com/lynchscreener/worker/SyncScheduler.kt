@@ -105,9 +105,9 @@ object SyncScheduler {
         WorkManager.getInstance(context)
             .beginUniqueWork("manual_sync", ExistingWorkPolicy.REPLACE, table)
             .then(details)
+            .then(price)   // SEC precisa do preço para P/L, P/VP e DY
             .then(sec)
             .then(cvm)
-            .then(price)
             .enqueue()
     }
 
@@ -147,20 +147,20 @@ object SyncScheduler {
             .setConstraints(constraints).addTag(SyncMonitor.SYNC_TAG).build()
         val details = OneTimeWorkRequestBuilder<B3DetailsWorker>()
             .setConstraints(constraints).addTag(SyncMonitor.SYNC_TAG).build()
+        val price = OneTimeWorkRequestBuilder<PriceRefreshWorker>()
+            .setConstraints(constraints).addTag(SyncMonitor.SYNC_TAG).build()
         val sec = OneTimeWorkRequestBuilder<SecBalancesWorker>()
+            .setConstraints(constraints).addTag(SyncMonitor.SYNC_TAG).build()
         val cvm = OneTimeWorkRequestBuilder<CvmEarningsWorker>()
             .setConstraints(constraints).addTag(SyncMonitor.SYNC_TAG).build()
 
         WorkManager.getInstance(context)
             .beginUniqueWork("initial_sync", ExistingWorkPolicy.KEEP, seed)
-            .then(table)
-            .then(details)   // sector first (CVM/PEGY need it)
-            .then(price)     // prices so SEC/CVM can compute ratios
-            .then(sec)
-            .then(cvm)       // earnings history last (heaviest downloadle)
-            .then(details)
-            .then(price)   // prices first so SEC can compute P/L, P/VP, DY
-            .then(sec)
+            .then(table)      // universo da B3 (tickers + múltiplos)
+            .then(details)    // nome/setor/caixa (necessário para o score)
+            .then(price)      // cotações para SEC/CVM calcularem ratios
+            .then(sec)        // fundamentos dos EUA (SEC EDGAR)
+            .then(cvm)        // histórico de lucro da CVM (download mais pesado)
             .enqueue()
     }
 

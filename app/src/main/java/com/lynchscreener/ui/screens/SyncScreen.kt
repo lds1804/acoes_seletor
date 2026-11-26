@@ -3,6 +3,7 @@ package com.lynchscreener.ui.screens
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -53,6 +54,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lynchscreener.ui.components.PulsingDot
 import com.lynchscreener.ui.sync.SyncViewModel
 import com.lynchscreener.ui.theme.LocalLynchColors
+import com.lynchscreener.worker.SyncProgress
 
 @Composable
 fun SyncScreen(viewModel: SyncViewModel) {
@@ -89,6 +91,10 @@ fun SyncScreen(viewModel: SyncViewModel) {
             }
 
             item { GlobalStatusCard(state.syncStatus.isSyncing) }
+
+            if (state.download.active) {
+                item { DownloadCard(state.download) }
+            }
 
             item {
                 Surface(
@@ -172,6 +178,94 @@ private fun GlobalStatusCard(isSyncing: Boolean) {
                     Text("OK", color = colors.positive, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun DownloadCard(download: SyncProgress.State) {
+    val colors = LocalLynchColors.current
+    val fraction = download.fraction
+    val animated by animateFloatAsState(
+        targetValue = fraction ?: 0f,
+        animationSpec = tween(durationMillis = 400),
+        label = "downloadBar",
+    )
+
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = colors.surfaceElevated,
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, colors.accentPrimary.copy(alpha = 0.45f), RoundedCornerShape(18.dp)),
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                PulsingDot(color = colors.accentPrimary)
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = "Baixando CSV da CVM",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = colors.textPrimary,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = download.label.ifBlank { "preparando…" },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.textSecondary,
+                    )
+                }
+                // Byte counters are the only proof the transfer is progressing:
+                // a stalled value means the connection dropped.
+                Text(
+                    text = buildString {
+                        append(download.megabytesDone)
+                        if (download.megabytesTotal > 0) append(" / ${download.megabytesTotal}")
+                        append(" MB")
+                    },
+                    style = MaterialTheme.typography.labelLarge,
+                    color = colors.accentPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+
+            Spacer(Modifier.height(10.dp))
+
+            if (fraction != null) {
+                LinearProgressIndicator(
+                    progress = { animated.coerceIn(0f, 1f) },
+                    color = colors.accentPrimary,
+                    trackColor = colors.surfaceCard,
+                    modifier = Modifier.fillMaxWidth().height(8.dp),
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = "${(animated * 100).toInt()}% · pacotes restantes: ${download.pendingPackages}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = colors.textMuted,
+                )
+            } else {
+                LinearProgressIndicator(
+                    color = colors.accentPrimary,
+                    trackColor = colors.surfaceCard,
+                    modifier = Modifier.fillMaxWidth().height(8.dp),
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = "Tamanho total desconhecido · pacotes restantes: ${download.pendingPackages}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = colors.textMuted,
+                )
+            }
+
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "São 5 pacotes anuais (~60–80 MB cada), um por execução. " +
+                    "Mantenha o app no Wi-Fi durante o download.",
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.textMuted,
+            )
         }
     }
 }

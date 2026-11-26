@@ -40,6 +40,7 @@ class CvmEarningsWorker(
         val tickers = repository.pendingEarningsTickers().toSet()
         if (tickers.isEmpty()) {
             SyncEventLog.log("CVM: nenhum ativo pendente de histórico")
+            SyncProgress.finish()
             cleanup()
             return Result.success()
         }
@@ -55,23 +56,32 @@ class CvmEarningsWorker(
             SyncEventLog.log(
                 "CVM: pacote DFP $year (${pendingYears.size} restante(s), ${tickers.size} ativos)",
             )
+            SyncProgress.begin(
+                label = "CVM · DFP $year",
+                pendingPackages = pendingYears.size,
+            )
 
             val tickerToCnpj = readCachedCnpj()
-                ?: client.fetchTickerToCnpj().also { writeCachedCnpj(it) }
+                ?: client.fetchTickerToCnpj(onBytes = SyncProgress::onBytes)
+                    .also { writeCachedCnpj(it) }
             val cnpjs = tickers.mapNotNull { tickerToCnpj[it] }.toSet()
             SyncEventLog.log("CVM: ${cnpjs.size}/${tickers.size} tickers mapeados para CNPJ")
 
             if (cnpjs.isEmpty()) {
                 // Nothing to look up — record "no data" so the loop stops.
                 repository.applyEarningsBatch(tickers.associateWith { CvmEarnings.from(emptyMap()) })
+                SyncProgress.finish()
                 cleanup()
                 return Result.success()
             }
 
             val partial = readPartial()
-            val yearData = client.fetchNetIncomeByCnpj(cnpjs, years = listOf(year)) {
-                SyncEventLog.log("CVM: $it")
-            }
+            val yearData = client.fetchNetIncomeByCnpj(
+                cnpjs = cnpjs,
+                years = listOf(year),
+                onProgress = { SyncEventLog.log("CVM: $it") },
+                onBytes = SyncProgress::onBytes,
+            )
             for ((cnpj, byYear) in yearData) {
                 val target = partial.getOrPut(cnpj) { mutableMapOf() }
                 for ((fy, value) in byYear) target.putIfAbsent(fy, value)
@@ -84,10 +94,12 @@ class CvmEarningsWorker(
             if (remaining.isEmpty()) {
                 applyToDatabase(tickers)
             } else {
+                SyncProgress.begin(label = "CVM · DFP $year concluído", pendingPackages = remaining.size)
                 SyncScheduler.continueCvm(applicationContext)
                 Result.success()
             }
         } catch (e: Exception) {
+            SyncProgress.finish()
             SyncEventLog.log("CVM: falha — ${e.message ?: e.javaClass.simpleName}")
             Result.retry()
         }
@@ -106,6 +118,7 @@ class CvmEarningsWorker(
         val withData = tickerToEarnings.count { it.value.netIncomeByYear.isNotEmpty() }
         val withLoss = tickerToEarnings.count { it.value.consistent == false }
         SyncEventLog.log("CVM: $updated ativos com histórico ($withData com série, $withLoss com prejuízo)")
+        SyncProgress.finish()
         cleanup()
         return Result.success()
     }

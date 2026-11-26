@@ -8,6 +8,7 @@ import com.lynchscreener.data.repository.SyncSettings
 import com.lynchscreener.data.repository.SyncSnapshot
 import com.lynchscreener.worker.SyncEventLog
 import com.lynchscreener.worker.SyncMonitor
+import com.lynchscreener.worker.SyncProgress
 import com.lynchscreener.worker.SyncScheduler
 import com.lynchscreener.worker.SyncStatus
 import kotlinx.coroutines.delay
@@ -25,6 +26,8 @@ data class SyncUiState(
     val snapshot: SyncSnapshot? = null,
     val syncStatus: SyncStatus = SyncStatus(),
     val logLines: List<String> = emptyList(),
+    /** Live byte progress of the heavy CVM download, if any. */
+    val download: SyncProgress.State = SyncProgress.State(),
 )
 
 class SyncViewModel(
@@ -40,8 +43,20 @@ class SyncViewModel(
     private val logLines = MutableStateFlow<List<String>>(emptyList())
 
     val uiState: StateFlow<SyncUiState> =
-        combine(wifiOnly, chargingOnly, snapshot, syncMonitor.status, logLines) { w, c, s, status, log ->
-            SyncUiState(wifiOnly = w, chargingOnly = c, snapshot = s, syncStatus = status, logLines = log)
+        combine(
+            combine(wifiOnly, chargingOnly, logLines) { w, c, log -> Triple(w, c, log) },
+            combine(snapshot, syncMonitor.status, SyncProgress.state) { s, status, download ->
+                Triple(s, status, download)
+            },
+        ) { (w, c, log), (s, status, download) ->
+            SyncUiState(
+                wifiOnly = w,
+                chargingOnly = c,
+                snapshot = s,
+                syncStatus = status,
+                logLines = log,
+                download = download,
+            )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncUiState())
 
     init {

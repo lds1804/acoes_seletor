@@ -15,8 +15,8 @@ import okhttp3.OkHttpClient
  *
  * Two artifacts are used:
  *  1. FCA "valor mobiliário" — maps each B3 ticker to its company CNPJ.
- *  2. DFP "DRE consolidado" — annual income statement, from which we read the
- *     net income account (3.11) per fiscal year.
+ *  2. DFP "DRE consolidado" — annual income statement. The net-income line is
+ *     matched by DESCRIPTION, because its account code changes per regime.
  *
  * Files are ISO-8859-1 encoded and semicolon separated.
  */
@@ -29,8 +29,11 @@ class CvmClient(
      * Ticker (e.g. "PETR4") -> CNPJ. Only equity classes (ON/PN/UNT) are kept,
      * so debentures and BDRs registered in the same file are ignored.
      */
-    suspend fun fetchTickerToCnpj(fcaYear: Int = CVM_DFP_YEARS.first()): Map<String, String> {
-        val zip = download(CVM_FCA_TICKERS.format(fcaYear), "fca_$fcaYear")
+    suspend fun fetchTickerToCnpj(
+        fcaYear: Int = CVM_DFP_YEARS.first(),
+        onBytes: (Long, Long) -> Unit = { _, _ -> },
+    ): Map<String, String> {
+        val zip = download(CVM_FCA_TICKERS.format(fcaYear), "fca_$fcaYear", onBytes)
         return zip.use { zf ->
             val entryName = CVM_FCA_TICKERS_CSV.format(fcaYear)
             val entry = zf.getEntry(entryName) ?: return emptyMap()
@@ -71,6 +74,7 @@ class CvmClient(
         cnpjs: Set<String>,
         years: List<Int> = CVM_DFP_YEARS,
         onProgress: (String) -> Unit = {},
+        onBytes: (Long, Long) -> Unit = { _, _ -> },
     ): Map<String, Map<Int, Double>> {
         // cnpj -> year -> (code, value)
         val picked = mutableMapOf<String, MutableMap<Int, Pair<String, Double>>>()
@@ -78,7 +82,7 @@ class CvmClient(
         for (year in years) {
             onProgress("DFP $year: baixando…")
             val zip = try {
-                download(CVM_DFP_ZIP.format(year), "dfp_$year")
+                download(CVM_DFP_ZIP.format(year), "dfp_$year", onBytes)
             } catch (e: Exception) {
                 onProgress("DFP $year: falhou (${e.message})")
                 continue
@@ -123,11 +127,15 @@ class CvmClient(
         return picked.mapValues { (_, byYear) -> byYear.mapValues { it.value.second } }
     }
 
-    private suspend fun download(url: String, name: String): ZipFile {
+    private suspend fun download(
+        url: String,
+        name: String,
+        onBytes: (Long, Long) -> Unit = { _, _ -> },
+    ): ZipFile {
         if (!cacheDir.exists()) cacheDir.mkdirs()
         val file = File(cacheDir, "$name.zip")
         try {
-            client.downloadTo(url, file, mapOf("User-Agent" to CVM_USER_AGENT))
+            client.downloadTo(url, file, mapOf("User-Agent" to CVM_USER_AGENT), onBytes)
             return ZipFile(file)
         } catch (e: Exception) {
             file.delete()

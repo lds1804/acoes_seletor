@@ -66,7 +66,16 @@ class DeviceConditionsTest {
 
     @Test
     fun `offline device reports every missing condition`() {
-        assertEquals(listOf("sem internet", "sem Wi-Fi"), offline.blockers(true, true))
+        // Not connected, no Wi-Fi and unplugged: all three gates are closed.
+        assertEquals(
+            listOf("sem internet", "sem Wi-Fi", "fora do carregador"),
+            offline.blockers(wifiOnly = true, chargingOnly = true),
+        )
+        // Charging not required, so only the network gates are reported.
+        assertEquals(
+            listOf("sem internet", "sem Wi-Fi"),
+            offline.blockers(wifiOnly = true, chargingOnly = false),
+        )
         assertFalse(offline.allowsSlowQueue(wifiOnly = false, chargingOnly = false))
     }
 

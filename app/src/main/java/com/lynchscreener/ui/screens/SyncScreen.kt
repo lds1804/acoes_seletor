@@ -54,6 +54,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lynchscreener.ui.components.PulsingDot
 import com.lynchscreener.ui.sync.SyncViewModel
 import com.lynchscreener.ui.theme.LocalLynchColors
+import com.lynchscreener.worker.DeviceConditions
 import com.lynchscreener.worker.SyncProgress
 import com.lynchscreener.worker.SyncStatus
 
@@ -91,7 +92,7 @@ fun SyncScreen(viewModel: SyncViewModel) {
                 }
             }
 
-            item { GlobalStatusCard(state.syncStatus) }
+            item { GlobalStatusCard(state.syncStatus, state.conditions, state.wifiOnly, state.chargingOnly) }
 
             if (state.download.active) {
                 item { DownloadCard(state.download) }
@@ -146,10 +147,23 @@ fun SyncScreen(viewModel: SyncViewModel) {
 }
 
 @Composable
-private fun GlobalStatusCard(status: SyncStatus) {
+private fun GlobalStatusCard(
+    status: SyncStatus,
+    conditions: DeviceConditions?,
+    wifiOnly: Boolean,
+    chargingOnly: Boolean,
+) {
     val colors = LocalLynchColors.current
     val isSyncing = status.isSyncing
     val isWaiting = status.isWaiting
+    // Only meaningful while something is queued: when idle, an unmet condition is
+    // not the reason for anything.
+    val blockers = if (isWaiting && conditions != null) {
+        conditions.blockers(wifiOnly, chargingOnly)
+    } else {
+        emptyList()
+    }
+
     Surface(
         shape = RoundedCornerShape(18.dp),
         color = if (isSyncing) colors.surfaceElevated else colors.surfaceCard,
@@ -190,14 +204,31 @@ private fun GlobalStatusCard(status: SyncStatus) {
                 Text(
                     text = when {
                         isSyncing -> "O WorkManager está processando as filas em segundo plano."
-                        // The heavy CVM download is Wi-Fi-only on purpose (~400 MB).
-                        isWaiting -> "${status.enqueuedTasks} tarefa(s) na fila. O download da CVM " +
-                            "só roda no Wi-Fi; outras filas podem exigir carregador."
+                        isWaiting && blockers.isNotEmpty() ->
+                            "${status.enqueuedTasks} tarefa(s) na fila, bloqueada(s) por: " +
+                                blockers.joinToString(", ") + "."
+                        isWaiting -> "${status.enqueuedTasks} tarefa(s) na fila. O download da " +
+                            "CVM só roda no Wi-Fi."
                         else -> "Nenhuma sincronização ativa no momento."
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = colors.textSecondary,
                 )
+                // Device readout: makes the wait diagnosable without a cable.
+                if (conditions != null && (isWaiting || isSyncing)) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = buildString {
+                            append("Bateria ")
+                            append(conditions.batteryPercent?.let { "$it%" } ?: "?")
+                            if (conditions.isCharging) append(" · carregando")
+                            append(if (conditions.isOnWifi) " · Wi-Fi" else " · sem Wi-Fi")
+                            append(if (conditions.hasConnection) "" else " · offline")
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.textMuted,
+                    )
+                }
             }
             when {
                 isSyncing -> Unit

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.lynchscreener.data.repository.AssetRepository
 import com.lynchscreener.data.repository.SyncSettings
 import com.lynchscreener.data.repository.SyncSnapshot
+import com.lynchscreener.worker.DeviceConditions
 import com.lynchscreener.worker.SyncEventLog
 import com.lynchscreener.worker.SyncMonitor
 import com.lynchscreener.worker.SyncProgress
@@ -28,6 +29,8 @@ data class SyncUiState(
     val logLines: List<String> = emptyList(),
     /** Live byte progress of the heavy CVM download, if any. */
     val download: SyncProgress.State = SyncProgress.State(),
+    /** Battery / network state, so a stalled queue can explain itself. */
+    val conditions: DeviceConditions? = null,
 )
 
 class SyncViewModel(
@@ -41,6 +44,7 @@ class SyncViewModel(
     private val chargingOnly = MutableStateFlow(syncSettings.chargingOnly)
     private val snapshot = MutableStateFlow<SyncSnapshot?>(null)
     private val logLines = MutableStateFlow<List<String>>(emptyList())
+    private val conditions = MutableStateFlow<DeviceConditions?>(null)
 
     val uiState: StateFlow<SyncUiState> =
         combine(
@@ -48,7 +52,8 @@ class SyncViewModel(
             combine(snapshot, syncMonitor.status, SyncProgress.state) { s, status, download ->
                 Triple(s, status, download)
             },
-        ) { (w, c, log), (s, status, download) ->
+            conditions,
+        ) { (w, c, log), (s, status, download), cond ->
             SyncUiState(
                 wifiOnly = w,
                 chargingOnly = c,
@@ -56,6 +61,7 @@ class SyncViewModel(
                 syncStatus = status,
                 logLines = log,
                 download = download,
+                conditions = cond,
             )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncUiState())
 
@@ -70,6 +76,9 @@ class SyncViewModel(
         viewModelScope.launch {
             while (isActive) {
                 snapshot.value = runCatching { repository.syncSnapshot() }.getOrNull()
+                // Poll the device state on the same tick, so the screen can say what
+                // is blocking the queues instead of just "aguardando".
+                conditions.value = runCatching { DeviceConditions.read(app) }.getOrNull()
                 delay(2_000)
             }
         }

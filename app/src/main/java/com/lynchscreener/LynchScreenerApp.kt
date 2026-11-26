@@ -5,6 +5,7 @@ import androidx.work.Configuration
 import androidx.work.WorkManager
 import com.lynchscreener.di.AppContainer
 import com.lynchscreener.domain.LynchScoringEngine
+import com.lynchscreener.domain.model.Market
 import com.lynchscreener.worker.LynchWorkerFactory
 import com.lynchscreener.worker.SyncEventLog
 import com.lynchscreener.worker.SyncScheduler
@@ -36,8 +37,24 @@ class LynchScreenerApp : Application() {
         )
 
         SyncScheduler.scheduleAll(this, container.syncSettings)
-        SyncScheduler.triggerInitialIfNeeded(this)
+        startInitialSyncIfNeeded()
         migrateScoringIfNeeded()
+    }
+
+    /**
+     * Triggers the first sync only when the database is actually empty.
+     *
+     * The check is what makes the recovery work: a chain whose jobs were all
+     * cancelled (battery, no Wi-Fi, Doze) leaves the "done" flag set with an empty
+     * table, and the app would never try again.
+     */
+    private fun startInitialSyncIfNeeded() {
+        CoroutineScope(Dispatchers.IO).launch {
+            val brWithPrice = runCatching {
+                container.repository.countWithPrice(Market.BR)
+            }.getOrDefault(0)
+            SyncScheduler.triggerInitialIfNeeded(this@LynchScreenerApp, dataPresent = brWithPrice > 0)
+        }
     }
 
     /**

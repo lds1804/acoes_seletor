@@ -87,10 +87,17 @@ object SyncScheduler {
         )
     }
 
-    /** On-demand chain: table -> details -> balances -> prices. */
+    /**
+     * On-demand chain, triggered by the user tapping "Sincronizar agora".
+     *
+     * Runs with [SyncConstraints.userInitiated] instead of the background profile:
+     * a tap is explicit consent, and silently deferring it behind wifi/charging
+     * rules is what made the button look broken. The CVM download is the one
+     * exception — it stays Wi-Fi-only because of the volume.
+     */
     fun triggerNow(context: Context) {
         SyncEventLog.log("Sincronização manual disparada")
-        val constraints = SyncConstraints.default()
+        val constraints = SyncConstraints.userInitiated()
         val table = OneTimeWorkRequestBuilder<B3TableWorker>()
             .setConstraints(constraints).addTag(SyncMonitor.SYNC_TAG).build()
         val details = OneTimeWorkRequestBuilder<B3DetailsWorker>()
@@ -132,14 +139,29 @@ object SyncScheduler {
     /**
      * Dispara a primeira sincronização assim que o app é instalado/aberto pela
      * primeira vez, para que o banco não fique vazio à espera dos workers
-     * periódicos (24h/3h/6h). Idempotente via SharedPreferences.
+     * periódicos (24h/3h/6h).
+     *
+     * Self-healing: the "done" flag alone is not trusted. If it says done but the
+     * database has no prices, the previous chain was cancelled mid-way (battery
+     * died, Wi-Fi lost, job killed) and the app would stay half-populated forever
+     * — which is exactly what happened on device, where every job had been
+     * cancelled by `BATTERY_NOT_LOW` after the flag was already set.
+     *
+     * @param dataPresent true when the B3 universe already has prices.
      */
-    fun triggerInitialIfNeeded(context: Context) {
+    fun triggerInitialIfNeeded(context: Context, dataPresent: Boolean = false) {
         val prefs = context.getSharedPreferences("sync_state", Context.MODE_PRIVATE)
-        if (prefs.getBoolean(INITIAL_SYNC_KEY, false)) return
+        val flagged = prefs.getBoolean(INITIAL_SYNC_KEY, false)
+        if (flagged && dataPresent) return
+
+        val retrying = flagged
+        if (retrying) {
+            SyncEventLog.log("Sincronização inicial incompleta — retomando")
+        } else {
+            SyncEventLog.log("Primeira execução: disparando sincronização inicial")
+        }
         prefs.edit().putBoolean(INITIAL_SYNC_KEY, true).apply()
 
-        SyncEventLog.log("Primeira execução: disparando sincronização inicial")
         val constraints = SyncConstraints.default()
         val seed = OneTimeWorkRequestBuilder<SeedUniverseWorker>()
             .setConstraints(constraints).addTag(SyncMonitor.SYNC_TAG).build()
@@ -155,7 +177,13 @@ object SyncScheduler {
             .setConstraints(SyncConstraints.heavyDownload()).addTag(SyncMonitor.SYNC_TAG).build()
 
         WorkManager.getInstance(context)
-            .beginUniqueWork("initial_sync", ExistingWorkPolicy.KEEP, seed)
+            .beginUniqueWork(
+                "initial_sync",
+                // A retry must replace the dead chain: the old one is still holding
+                // the unique name while its last step waits for Wi-Fi forever.
+                if (retrying) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP,
+                seed,
+            )
             .then(table)      // universo da B3 (tickers + múltiplos)
             .then(details)    // nome/setor/caixa (necessário para o score)
             .then(price)      // cotações para SEC/CVM calcularem ratios

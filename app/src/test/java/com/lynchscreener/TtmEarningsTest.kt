@@ -16,18 +16,18 @@ class TtmEarningsTest {
 
     @Test
     fun `eight quarters produce a real yoy`() {
-        // 2025 quarters: 100 each → TTM 400. 2026: 150 each → TTM 600.
+        // 2025: 100 per quarter. 2026: 150 per quarter (Q4 not filed yet).
         val quarters = listOf(
+            q(2024, 4, 100.0),
             q(2025, 1, 100.0), q(2025, 2, 100.0), q(2025, 3, 100.0), q(2025, 4, 100.0),
             q(2026, 1, 150.0), q(2026, 2, 150.0), q(2026, 3, 150.0),
         )
-        // Q4 2026 is not filed yet: the window ends at 2026Q3.
         val result = TtmEarnings.compute(quarters, annual = emptyMap(), currentYear = 2026)
 
         assertTrue(result.quarterly)
-        assertEquals(450.0, result.ttmCurrent!!, 1e-9) // 2025Q4 + 2026Q1..Q3
-        assertEquals(400.0, result.ttmPrevious!!, 1e-9) // 2025Q1..Q4
-        assertEquals(0.125, result.yoy!!, 1e-9)
+        assertEquals(550.0, result.ttmCurrent!!, 1e-9) // 2025Q4 + 2026Q1..Q3
+        assertEquals(400.0, result.ttmPrevious!!, 1e-9) // 2024Q4 + 2025Q1..Q3
+        assertEquals(0.375, result.yoy!!, 1e-9)
         assertEquals("2026Q3", result.latestQuarter)
     }
 

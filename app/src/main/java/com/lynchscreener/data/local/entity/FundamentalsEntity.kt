@@ -47,6 +47,14 @@ data class FundamentalsEntity(
     val earningsBasis: String? = null,
     /** Variation of net income vs the previous 12 months (fraction). */
     val earningsYoy: Double? = null,
+    /** Isolated quarterly net income as JSON {"2026Q3":123.4,...} (CVM ITR). */
+    val quarterlyJson: String? = null,
+    /** Sum of the last four reported quarters, in BRL. */
+    val ttmNetIncome: Double? = null,
+    /** Sum of the four quarters before those, in BRL. */
+    val ttmPrevious: Double? = null,
+    /** Last quarter used in the TTM window, e.g. "2026Q3" or "FY2025". */
+    val ttmQuarter: String? = null,
     /** Comma-separated [com.lynchscreener.domain.model.LynchFlag] codes. */
     val alertFlags: String? = null,
     val pegy: Double?,

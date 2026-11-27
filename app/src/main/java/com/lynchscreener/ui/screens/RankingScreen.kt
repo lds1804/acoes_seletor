@@ -465,6 +465,13 @@ private fun FilterSheet(
             Spacer(Modifier.height(16.dp))
             Text("Filtros rápidos", style = MaterialTheme.typography.titleMedium, color = colors.textPrimary, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
+            // ON/PN/Unit carry the same fundamentals, so keeping all of them
+            // repeats the same company two or three times in the list.
+            FilterSwitch(
+                label = "Ocultar duplicatas (ON/PN/Unit)",
+                checked = state.filters.hideDuplicates,
+                onChange = viewModel::setHideDuplicates,
+            )
             FilterSwitch("Apenas caixa líquido", state.filters.onlyNetCash, viewModel::setOnlyNetCash)
             FilterSwitch("PEGY < 1,0", state.filters.pegyBelowOne, viewModel::setPegyBelowOne)
             FilterSwitch("Ocultar P/L negativo", state.filters.hideNegativePe, viewModel::setHideNegativePe)

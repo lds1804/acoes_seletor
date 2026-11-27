@@ -114,13 +114,19 @@ interface AssetDao {
      * The INNER JOIN is essential: the history is written into `fundamentals`,
      * so an asset without that row could never be marked as processed and would
      * stay pending forever (the worker self-chains, so that would loop).
+     *
+     * `quarterlyJson IS NULL` means the ITR packages were never read for this
+     * company — either because the install predates the quarterly series or
+     * because the run stopped halfway. `"{}"` is written once the attempt is
+     * made, so a company without ITR filings stops being pending instead of
+     * looping forever.
      */
     @Query(
         """
         SELECT a.ticker FROM assets a
         INNER JOIN fundamentals f ON a.ticker = f.ticker
         WHERE a.market = 'BR'
-          AND f.earningsHistoryJson IS NULL
+          AND (f.earningsHistoryJson IS NULL OR f.quarterlyJson IS NULL)
         """
     )
     suspend fun pendingEarningsTickers(): List<String>
@@ -130,7 +136,7 @@ interface AssetDao {
         SELECT COUNT(*) FROM assets a
         INNER JOIN fundamentals f ON a.ticker = f.ticker
         WHERE a.market = 'BR'
-          AND f.earningsHistoryJson IS NULL
+          AND (f.earningsHistoryJson IS NULL OR f.quarterlyJson IS NULL)
         """
     )
     suspend fun countPendingEarnings(): Int
@@ -163,6 +169,9 @@ interface AssetDao {
                f.earningsHistoryJson AS earningsHistoryJson,
                f.earningsBasis AS earningsBasis,
                f.earningsYoy AS earningsYoy,
+               f.ttmNetIncome AS ttmNetIncome,
+               f.ttmPrevious AS ttmPrevious,
+               f.ttmQuarter AS ttmQuarter,
                f.alertFlags AS alertFlags,
                a.priceUpdatedAt AS priceUpdatedAt,
                a.fundamentalsUpdatedAt AS fundamentalsUpdatedAt
@@ -194,6 +203,9 @@ interface AssetDao {
                f.earningsHistoryJson AS earningsHistoryJson,
                f.earningsBasis AS earningsBasis,
                f.earningsYoy AS earningsYoy,
+               f.ttmNetIncome AS ttmNetIncome,
+               f.ttmPrevious AS ttmPrevious,
+               f.ttmQuarter AS ttmQuarter,
                f.alertFlags AS alertFlags,
                a.priceUpdatedAt AS priceUpdatedAt,
                a.fundamentalsUpdatedAt AS fundamentalsUpdatedAt

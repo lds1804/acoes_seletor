@@ -17,7 +17,7 @@ import com.lynchscreener.data.local.entity.PortfolioPositionEntity
         FundamentalsEntity::class,
         PortfolioPositionEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -66,6 +66,20 @@ abstract class AppDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE fundamentals ADD COLUMN earningsYoy REAL")
                 db.execSQL("ALTER TABLE fundamentals ADD COLUMN alertFlags TEXT")
+            }
+        }
+
+        /**
+         * Real trailing-twelve-month earnings, from the quarterly (ITR) filings.
+         * Existing rows keep NULL and are refilled by the CVM worker, which is
+         * triggered again because the quarterly series is missing.
+         */
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE fundamentals ADD COLUMN quarterlyJson TEXT")
+                db.execSQL("ALTER TABLE fundamentals ADD COLUMN ttmNetIncome REAL")
+                db.execSQL("ALTER TABLE fundamentals ADD COLUMN ttmPrevious REAL")
+                db.execSQL("ALTER TABLE fundamentals ADD COLUMN ttmQuarter TEXT")
             }
         }
     }

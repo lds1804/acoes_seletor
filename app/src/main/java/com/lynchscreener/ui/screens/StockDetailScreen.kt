@@ -362,6 +362,11 @@ private fun EarningsCard(state: com.lynchscreener.ui.detail.DetailUiState) {
         com.lynchscreener.ui.components.EarningsHistoryChart(years = history)
         Spacer(Modifier.height(10.dp))
 
+        // Where the YoY column comes from. Showing the reference period avoids the
+        // classic confusion between "last fiscal year" and "last four quarters".
+        TtmLine(company)
+        Spacer(Modifier.height(10.dp))
+
         // Lynch cares about consistency at least as much as the growth rate, so
         // the verdict is spelled out instead of leaving it to the chart.
         val (verdict, tone) = when {
@@ -382,9 +387,54 @@ private fun EarningsCard(state: com.lynchscreener.ui.detail.DetailUiState) {
     }
 }
 
+/**
+ * Shows the twelve-month window used for the YoY column.
+ *
+ * Two different numbers live here: the bars above are fiscal years (DFP), while
+ * the YoY is the sum of the last four quarters (ITR). Without this line the two
+ * look inconsistent — a company can show a growing annual series and a negative
+ * YoY because the most recent quarter has not closed yet.
+ */
 @Composable
-private fun SectorComparisonCard(state: com.lynchscreener.ui.detail.DetailUiState) {
-    val stats = state.sectorStats ?: return
+private fun TtmLine(company: RankedCompany) {
+    val colors = LocalLynchColors.current
+    val quarter = company.ttmQuarter ?: return
+    val market = Market.fromCode(company.market)
+    val quarterly = quarter.endsWith("Q1") || quarter.endsWith("Q2") ||
+        quarter.endsWith("Q3") || quarter.endsWith("Q4")
+    val label = if (quarterly) {
+        "TTM — últimos 4 trimestres até $quarter"
+    } else {
+        "TTM — ano fiscal ${quarter.removePrefix("FY")} (trimestres insuficientes)"
+    }
+    val yoy = company.earningsYoy
+    val tone = when {
+        yoy == null -> colors.textMuted
+        yoy > 0.0 -> colors.positive
+        yoy < 0.0 -> colors.negative
+        else -> colors.textSecondary
+    }
+
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.bodySmall, color = colors.textSecondary)
+            Text(
+                text = Formatters.compact(company.ttmNetIncome, market) + " no período",
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.textMuted,
+            )
+        }
+        Text(
+            text = Formatters.percent(yoy) + " vs. 12m anteriores",
+            style = MaterialTheme.typography.labelMedium,
+            color = tone,
+            fontWeight = FontWeight.Bold,
+        )
+    }
+}
+
+@Composable
+private fun SectorComparisonCard(state: com.lynchscreener.ui.detail.DetailUiState) {    val stats = state.sectorStats ?: return
     val company = state.company ?: return
     val colors = LocalLynchColors.current
     SectionCard("Empresa vs. Média do Setor (${stats.sector})") {

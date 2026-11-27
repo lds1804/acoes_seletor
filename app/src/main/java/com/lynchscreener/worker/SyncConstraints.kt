@@ -48,6 +48,17 @@ object SyncConstraints {
         .build()
 
     /**
+     * Light enrichment (~200 detail pages, roughly 10 MB): runs on any connection.
+     *
+     * Separated from [slowQueue] because a name/sector batch is cheap enough for
+     * mobile data, and gating it behind Wi-Fi left the ranking with tickers but no
+     * company names whenever the user was on LTE.
+     */
+    fun lightQueue(): Constraints = Constraints.Builder()
+        .setRequiredNetworkType(NetworkType.CONNECTED)
+        .build()
+
+    /**
      * Heavy one-shot download (~60–80 MB per CVM package, ~400 MB total).
      * Always Wi-Fi, regardless of the user preference, so a first sync cannot
      * silently consume hundreds of megabytes of mobile data. Charging is not

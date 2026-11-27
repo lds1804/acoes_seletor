@@ -14,6 +14,7 @@ import com.lynchscreener.data.remote.dto.EarningsBasis
 import com.lynchscreener.data.remote.dto.SecFundamentals
 import com.lynchscreener.data.remote.dto.Sp500Entry
 import com.lynchscreener.domain.LynchScoringEngine
+import com.lynchscreener.domain.TtmEarnings
 import com.lynchscreener.domain.model.Financials
 import com.lynchscreener.domain.model.LynchCategory
 import com.lynchscreener.domain.model.LynchFlag
@@ -39,26 +40,44 @@ class AssetRepository(
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
     /**
-     * Year-over-year variation of net income, derived from the annual history
-     * already stored in Room.
+     * Trailing-twelve-month summary from the stored quarterly series.
      *
-     * This is what makes the momentum check free: no extra CVM/SEC download is
-     * needed to notice that a company's profit just fell by 20%.
-     * Returns null when there are fewer than two comparable years or when the
-     * base year was a loss (percentage growth from a loss is meaningless).
+     * Falls back to the annual history only when fewer than eight quarters exist,
+     * and the fallback is marked as such ([TtmEarnings.Result.quarterly] == false)
+     * so the UI does not present a fiscal-year comparison as a rolling window.
      */
-    private fun yoyFromHistory(historyJson: String?): Double? {
-        if (historyJson.isNullOrBlank() || historyJson == "{}") return null
-        val map = runCatching {
-            json.decodeFromString<Map<String, Double>>(historyJson)
-        }.getOrNull() ?: return null
-        val years = map.keys.mapNotNull { it.toIntOrNull() }.sorted()
-        if (years.size < 2) return null
-        val last = map[years.last().toString()] ?: return null
-        val previous = map[years[years.size - 2].toString()] ?: return null
-        if (previous <= 0.0) return null
-        return last / previous - 1.0
+    private fun ttmSummary(quarterlyJson: String?, historyJson: String?): TtmEarnings.Result {
+        val quarters = decodeQuarters(quarterlyJson)
+        val annual = decodeAnnual(historyJson)
+        return TtmEarnings.compute(quarters, annual)
     }
+
+    private fun decodeQuarters(raw: String?): List<TtmEarnings.Quarter> {
+        if (raw.isNullOrBlank() || raw == "{}") return emptyList()
+        val map = runCatching {
+            json.decodeFromString<Map<String, Double>>(raw)
+        }.getOrNull() ?: return emptyList()
+        // Keys look like "2026Q3".
+        return map.mapNotNull { (key, value) ->
+            val year = key.substringBefore('Q').toIntOrNull()
+            val quarter = key.substringAfter('Q').toIntOrNull()
+            if (year == null || quarter == null || quarter !in 1..4) null
+            else TtmEarnings.Quarter(year, quarter, value)
+        }
+    }
+
+    private fun decodeAnnual(raw: String?): Map<Int, Double> {
+        if (raw.isNullOrBlank() || raw == "{}") return emptyMap()
+        val map = runCatching {
+            json.decodeFromString<Map<String, Double>>(raw)
+        }.getOrNull() ?: return emptyMap()
+        return map.mapNotNull { (year, value) ->
+            year.toIntOrNull()?.let { it to value }
+        }.toMap()
+    }
+
+    private fun encodeQuarters(map: Map<String, Double>): String? =
+        if (map.isEmpty()) null else runCatching { json.encodeToString(map) }.getOrNull()
 
     // -----------------------------------------------------------------
     // Queue cursors (checkpointing by timestamp)
@@ -126,15 +145,27 @@ class AssetRepository(
             val prev = fundamentalsDao.getByTicker(ticker) ?: continue
 
             // No earnings found (e.g. no CNPJ match): still mark as attempted
-            // ("{}") so the costly CVM download is not retried forever.
+            // ("{}") so the costly CVM download is not retried forever, but never
+            // throw away a series already on disk.
             if (raw.isEmpty) {
-                fundamentalsDao.upsert(prev.copy(earningsHistoryJson = "{}"))
+                fundamentalsDao.upsert(
+                    prev.copy(
+                        earningsHistoryJson = prev.earningsHistoryJson ?: "{}",
+                        quarterlyJson = prev.quarterlyJson ?: "{}",
+                    )
+                )
                 continue
             }
 
             val earnings = CvmEarnings.from(raw.netIncomeByYear)
             val statement = parentBasis(prev, asset.marketCap, raw, earnings)
             val historyJson = encodeEarnings(earnings.netIncomeByYear)
+            // Keep whatever quarterly series is already stored when this run did
+            // not bring any: the DFP-only packages must not erase the ITR series.
+            // "{}" records a finished attempt so the ticker leaves the pending set.
+            val quarterlyJson =
+                encodeQuarters(raw.quarterlyNetIncome) ?: prev.quarterlyJson ?: "{}"
+            val ttm = ttmSummary(quarterlyJson, historyJson)
 
             val financials = Financials(
                 ticker = ticker,
@@ -150,7 +181,7 @@ class AssetRepository(
                 cagr5y = prev.cagr5y,
                 earningsCagr5y = earnings.cagr5y,
                 earningsConsistent = earnings.consistent,
-                earningsYoy = yoyFromHistory(historyJson),
+                earningsYoy = ttm.yoy,
                 netDebt = prev.netDebt,
                 totalDebt = null,
                 cashAndEquivalents = null,
@@ -173,7 +204,11 @@ class AssetRepository(
                     earningsBasis = raw.basis.name,
                     earningsCagr5y = earnings.cagr5y,
                     earningsConsistent = earnings.consistent,
-                    earningsYoy = yoyFromHistory(historyJson),
+                    earningsYoy = ttm.yoy,
+                    quarterlyJson = quarterlyJson,
+                    ttmNetIncome = ttm.ttmCurrent,
+                    ttmPrevious = ttm.ttmPrevious,
+                    ttmQuarter = ttm.latestQuarter,
                     alertFlags = LynchFlag.toCodes(score.flags),
                     earningsHistoryJson = historyJson,
                     pegy = score.pegy,
@@ -310,7 +345,7 @@ class AssetRepository(
             val asset = assets[prev.ticker] ?: continue
             // Momentum is derived from data already on disk, so a rule change is
             // picked up without downloading anything again.
-            val yoy = yoyFromHistory(prev.earningsHistoryJson)
+            val ttm = ttmSummary(prev.quarterlyJson, prev.earningsHistoryJson)
             val financials = Financials(
                 ticker = prev.ticker,
                 market = Market.fromCode(asset.market),
@@ -325,7 +360,7 @@ class AssetRepository(
                 cagr5y = prev.cagr5y,
                 earningsCagr5y = prev.earningsCagr5y,
                 earningsConsistent = prev.earningsConsistent,
-                earningsYoy = yoy,
+                earningsYoy = ttm.yoy,
                 netDebt = prev.netDebt,
                 totalDebt = null,
                 cashAndEquivalents = null,
@@ -338,7 +373,10 @@ class AssetRepository(
             val score = engine.score(financials)
             fundamentalsDao.upsert(
                 prev.copy(
-                    earningsYoy = yoy,
+                    earningsYoy = ttm.yoy,
+                    ttmNetIncome = ttm.ttmCurrent,
+                    ttmPrevious = ttm.ttmPrevious,
+                    ttmQuarter = ttm.latestQuarter,
                     alertFlags = LynchFlag.toCodes(score.flags),
                     pegy = score.pegy,
                     netCashToMarketCap = score.netCashToMarketCap,
@@ -491,7 +529,7 @@ class AssetRepository(
                     cagr5y = row.cagr5y,
                     earningsCagr5y = prev?.earningsCagr5y,
                     earningsConsistent = prev?.earningsConsistent,
-                    earningsYoy = yoyFromHistory(prev?.earningsHistoryJson),
+                    earningsYoy = ttmSummary(prev?.quarterlyJson, prev?.earningsHistoryJson).yoy,
                     netDebt = prev?.netDebt,
                     totalDebt = null,
                     cashAndEquivalents = null,
@@ -515,7 +553,11 @@ class AssetRepository(
                     earningsHistoryJson = prev?.earningsHistoryJson,
                     equityControllers = prev?.equityControllers,
                     earningsBasis = prev?.earningsBasis,
-                    earningsYoy = yoyFromHistory(prev?.earningsHistoryJson),
+                    earningsYoy = ttmSummary(prev?.quarterlyJson, prev?.earningsHistoryJson).yoy,
+                    quarterlyJson = prev?.quarterlyJson,
+                    ttmNetIncome = prev?.ttmNetIncome,
+                    ttmPrevious = prev?.ttmPrevious,
+                    ttmQuarter = prev?.ttmQuarter,
                     alertFlags = LynchFlag.toCodes(score.flags),
                     pegy = score.pegy,
                     netDebt = prev?.netDebt,
@@ -580,7 +622,7 @@ class AssetRepository(
             cagr5y = prev?.cagr5y,
             earningsCagr5y = prev?.earningsCagr5y,
             earningsConsistent = prev?.earningsConsistent,
-            earningsYoy = yoyFromHistory(prev?.earningsHistoryJson),
+            earningsYoy = ttmSummary(prev?.quarterlyJson, prev?.earningsHistoryJson).yoy,
             netDebt = details.netDebt ?: prev?.netDebt,
             totalDebt = null,
             cashAndEquivalents = details.cash,
@@ -615,7 +657,11 @@ class AssetRepository(
                 earningsHistoryJson = prev?.earningsHistoryJson,
                 equityControllers = prev?.equityControllers,
                 earningsBasis = prev?.earningsBasis,
-                earningsYoy = yoyFromHistory(prev?.earningsHistoryJson),
+                earningsYoy = ttmSummary(prev?.quarterlyJson, prev?.earningsHistoryJson).yoy,
+                quarterlyJson = prev?.quarterlyJson,
+                ttmNetIncome = prev?.ttmNetIncome,
+                ttmPrevious = prev?.ttmPrevious,
+                ttmQuarter = prev?.ttmQuarter,
                 alertFlags = LynchFlag.toCodes(score.flags),
                 dividendYield = prev?.dividendYield,
                 cagr5y = prev?.cagr5y,
@@ -783,7 +829,7 @@ class AssetRepository(
                 roe = prev.roe,
                 earningsCagr5y = prev.earningsCagr5y,
                 earningsConsistent = prev.earningsConsistent,
-                earningsYoy = yoyFromHistory(prev.earningsHistoryJson),
+                earningsYoy = ttmSummary(prev.quarterlyJson, prev.earningsHistoryJson).yoy,
                 roic = prev.roic,
                 dividendYield = dy,
                 cagr5y = prev.cagr5y,

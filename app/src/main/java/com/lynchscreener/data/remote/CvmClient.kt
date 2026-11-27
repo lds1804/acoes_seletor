@@ -6,6 +6,9 @@ import com.lynchscreener.data.remote.HttpConfig.CVM_DFP_YEARS
 import com.lynchscreener.data.remote.HttpConfig.CVM_DFP_ZIP
 import com.lynchscreener.data.remote.HttpConfig.CVM_FCA_TICKERS
 import com.lynchscreener.data.remote.HttpConfig.CVM_FCA_TICKERS_CSV
+import com.lynchscreener.data.remote.HttpConfig.CVM_ITR_DRE_CSV
+import com.lynchscreener.data.remote.HttpConfig.CVM_ITR_YEARS
+import com.lynchscreener.data.remote.HttpConfig.CVM_ITR_ZIP
 import com.lynchscreener.data.remote.HttpConfig.CVM_USER_AGENT
 import com.lynchscreener.data.remote.dto.CvmCompanyRaw
 import com.lynchscreener.data.remote.dto.EarningsBasis
@@ -87,6 +90,7 @@ class CvmClient(
     suspend fun fetchCompanyData(
         cnpjs: Set<String>,
         years: List<Int> = CVM_DFP_YEARS,
+        itrYears: List<Int> = CVM_ITR_YEARS,
         onProgress: (String) -> Unit = {},
         onBytes: (Long, Long) -> Unit = { _, _ -> },
     ): Map<String, CvmCompanyRaw> {
@@ -95,6 +99,8 @@ class CvmClient(
         // cnpj -> fiscal year -> candidate rows
         val incomeRows = mutableMapOf<String, MutableMap<Int, MutableList<Row>>>()
         val equityRows = mutableMapOf<String, MutableMap<Int, MutableList<Row>>>()
+        // cnpj -> period end date -> net-income rows of that period
+        val periodRows = mutableMapOf<String, MutableMap<String, MutableList<PeriodRow>>>()
 
         for (year in years) {
             onProgress("DFP $year: baixando…")
@@ -120,7 +126,27 @@ class CvmClient(
             onProgress("DFP $year: concluído")
         }
 
-        val all = incomeRows.keys + equityRows.keys
+        // Quarterly filings: the only way to reach the current trailing-twelve-month
+        // window instead of "last closed fiscal year vs. the one before".
+        for (year in itrYears) {
+            onProgress("ITR $year: baixando…")
+            val zip = try {
+                download(CVM_ITR_ZIP.format(year), "itr_$year", onBytes)
+            } catch (e: Exception) {
+                onProgress("ITR $year: falhou (${e.message})")
+                continue
+            }
+            zip.use { zf ->
+                onProgress("ITR $year: processando DRE…")
+                collectPeriodRows(zf, CVM_ITR_DRE_CSV.format(year), cnpjs, periodRows) { row ->
+                    row.description in NET_INCOME_DESCRIPTIONS ||
+                        row.description == CONTROLLERS_DESCRIPTION
+                }
+            }
+            onProgress("ITR $year: concluído")
+        }
+
+        val all = incomeRows.keys + equityRows.keys + periodRows.keys
         return all.associateWith { cnpj ->
             val income = resolveNetIncome(incomeRows[cnpj].orEmpty())
             val equity = resolveControllersEquity(equityRows[cnpj].orEmpty())
@@ -129,7 +155,139 @@ class CvmClient(
                 basis = income.basis,
                 equityControllers = equity?.value,
                 latestYear = equity?.year ?: income.byYear.keys.maxOrNull(),
+                quarterlyNetIncome = resolveQuarters(periodRows[cnpj].orEmpty()),
             )
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Quarterly (ITR)
+    // ---------------------------------------------------------------------
+
+    /** One row of a filing, keeping the exercise period so quarters can be told apart. */
+    private data class PeriodRow(
+        val code: String,
+        val description: String,
+        val value: Double,
+        val start: String,
+        val end: String,
+    )
+
+    private inline fun collectPeriodRows(
+        zf: ZipFile,
+        entryName: String,
+        cnpjs: Set<String>,
+        target: MutableMap<String, MutableMap<String, MutableList<PeriodRow>>>,
+        filter: (PeriodRow) -> Boolean,
+    ) {
+        val entry = zf.getEntry(entryName) ?: return
+        zf.getInputStream(entry).reader(Charsets.ISO_8859_1).buffered().useLines { lines ->
+            var idx: CsvIndex? = null
+            for (line in lines) {
+                if (idx == null) {
+                    idx = CsvIndex.parse(line)
+                    continue
+                }
+                if (line.isBlank()) continue
+                val cells = splitCsv(line)
+                if (cells.size < idx.size) continue
+
+                val cnpj = cells.getOrNull(idx.cnpj)?.trim().orEmpty()
+                if (cnpj !in cnpjs) continue
+
+                val end = cells.getOrNull(idx.endDate)?.trim().orEmpty()
+                if (end.isBlank()) continue
+                val raw = cells.getOrNull(idx.value)?.trim()?.toDoubleOrNull() ?: continue
+                val scale = scaleFactor(cells.getOrNull(idx.scale))
+
+                val row = PeriodRow(
+                    code = cells.getOrNull(idx.account)?.trim().orEmpty(),
+                    description = cells.getOrNull(idx.description)
+                        ?.trim()?.lowercase().orEmpty(),
+                    value = raw * scale,
+                    start = cells.getOrNull(idx.startDate)?.trim().orEmpty(),
+                    end = end,
+                )
+                if (!filter(row)) continue
+
+                target.getOrPut(cnpj) { mutableMapOf() }
+                    .getOrPut(end) { mutableListOf() }
+                    .add(row)
+            }
+        }
+    }
+
+    /**
+     * Turns ITR filings into isolated quarterly figures keyed `YYYYQn`.
+     *
+     * A 2T/3T filing publishes the same account twice — the isolated three-month
+     * period and the year-to-date total — so the period length decides which is
+     * which, and a missing isolated row is obtained by subtracting the previous
+     * YTD (all under the same account, so the subtraction is meaningful).
+     */
+    private fun resolveQuarters(byEnd: Map<String, MutableList<PeriodRow>>): Map<String, Double> {
+        val isolated = mutableMapOf<String, Double>()
+        val ytd = mutableMapOf<String, Double>()
+
+        for ((end, rows) in byEnd) {
+            val grouped = rows.groupBy { CvmPeriod.monthsBetween(it.start, it.end) ?: -1 }
+            for ((months, group) in grouped) {
+                val value = resolvePeriodIncome(group) ?: continue
+                when {
+                    months in 1..4 -> isolated[end] = value
+                    months in 5..11 -> ytd[end] = value
+                }
+            }
+        }
+
+        // Fill gaps: Q2 = YTD(6m) − YTD(3m), Q3 = YTD(9m) − YTD(6m).
+        for ((end, value) in ytd.toSortedMap()) {
+            if (isolated.containsKey(end)) continue
+            val previousEnd = previousQuarterEnd(end) ?: continue
+            val previous = ytd[previousEnd] ?: continue
+            isolated[end] = value - previous
+        }
+
+        return isolated.entries
+            .mapNotNull { (end, value) -> quarterKey(end)?.let { it to value } }
+            .toMap()
+    }
+
+    /** Net income of one period, preferring the parent-company slice. */
+    private fun resolvePeriodIncome(rows: List<PeriodRow>): Double? {
+        val bottom = rows.filter { it.description in NET_INCOME_DESCRIPTIONS }
+            .minByOrNull { it.code.length }
+        val controllers = rows.filter { it.description == CONTROLLERS_DESCRIPTION }
+            .minByOrNull { it.code.length }
+        val isChild = controllers != null && bottom != null &&
+            controllers.code.substringBeforeLast('.') == bottom.code
+        return when {
+            isChild -> controllers.value
+            bottom != null -> bottom.value
+            else -> null
+        }
+    }
+
+    private fun quarterKey(end: String): String? {
+        val year = CvmPeriod.fiscalYear(end) ?: return null
+        val month = end.substring(5, 7).toIntOrNull() ?: return null
+        val quarter = when (month) {
+            3 -> 1
+            6 -> 2
+            9 -> 3
+            12 -> 4
+            else -> return null
+        }
+        return "${year}Q$quarter"
+    }
+
+    private fun previousQuarterEnd(end: String): String? {
+        val year = CvmPeriod.fiscalYear(end) ?: return null
+        return when (end.substring(5, 7).toIntOrNull()) {
+            6 -> "$year-03-31"
+            9 -> "$year-06-30"
+            12 -> "$year-09-30"
+            else -> null
         }
     }
 

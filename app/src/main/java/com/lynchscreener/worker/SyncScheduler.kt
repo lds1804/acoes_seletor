@@ -42,12 +42,12 @@ object SyncScheduler {
                 .build()
         )
 
-        // B3 details — slow queue, every 3h.
+        // B3 details — light enrichment, every 3h, any connection.
         wm.enqueueUniquePeriodicWork(
             "b3_details",
             ExistingPeriodicWorkPolicy.KEEP,
             PeriodicWorkRequestBuilder<B3DetailsWorker>(3, TimeUnit.HOURS)
-                .setConstraints(SyncConstraints.slowQueue(settings.wifiOnly, settings.chargingOnly))
+                .setConstraints(SyncConstraints.lightQueue())
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.HOURS)
                 .addTag(SyncMonitor.SYNC_TAG)
                 .build()
@@ -205,7 +205,7 @@ object SyncScheduler {
             CHAIN_B3_DETAILS,
             ExistingWorkPolicy.APPEND_OR_REPLACE,
             OneTimeWorkRequestBuilder<B3DetailsWorker>()
-                .setConstraints(SyncConstraints.default())
+                .setConstraints(SyncConstraints.lightQueue())
                 .addTag(SyncMonitor.SYNC_TAG)
                 .build()
         )

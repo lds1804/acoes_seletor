@@ -39,6 +39,12 @@ data class RankedCompany(
     val earningsBasis: String?,
     /** Variation of net income vs the previous 12 months (fraction). */
     val earningsYoy: Double?,
+    /** Sum of the last four quarters (or of the last fiscal year). */
+    val ttmNetIncome: Double? = null,
+    /** Same sum, four quarters earlier. */
+    val ttmPrevious: Double? = null,
+    /** `2026Q3` when quarterly, `FY2025` when the annual series was used. */
+    val ttmQuarter: String? = null,
     /** Comma-separated [LynchFlag] codes, or null when the company is clean. */
     val alertFlags: String?,
     val priceUpdatedAt: Long?,

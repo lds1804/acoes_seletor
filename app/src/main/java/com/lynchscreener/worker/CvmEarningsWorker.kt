@@ -48,19 +48,22 @@ class CvmEarningsWorker(
         }
 
         return try {
-            val pendingYears = readPendingYears()
-            if (pendingYears.isEmpty()) {
+            val pending = readPendingPackages()
+            if (pending.isEmpty()) {
                 // Every package was already downloaded: just apply and finish.
                 return applyToDatabase(tickers)
             }
 
-            val year = pendingYears.first()
+            val packageId = pending.first()
+            val isItr = packageId.startsWith("I")
+            val year = packageId.drop(1).toIntOrNull() ?: return Result.success()
             SyncEventLog.log(
-                "CVM: pacote DFP $year (${pendingYears.size} restante(s), ${tickers.size} ativos)",
+                "CVM: pacote ${if (isItr) "ITR" else "DFP"} $year " +
+                    "(${pending.size} restante(s), ${tickers.size} ativos)",
             )
             SyncProgress.begin(
-                label = "CVM · DFP $year",
-                pendingPackages = pendingYears.size,
+                label = "CVM · ${if (isItr) "ITR" else "DFP"} $year",
+                pendingPackages = pending.size,
             )
 
             val tickerToCnpj = readCachedCnpj()
@@ -80,31 +83,41 @@ class CvmEarningsWorker(
             }
 
             val partial = readPartial()
-            val yearData = client.fetchCompanyData(
+            val packageData = client.fetchCompanyData(
                 cnpjs = cnpjs,
-                years = listOf(year),
+                years = if (isItr) emptyList() else listOf(year),
+                itrYears = if (isItr) listOf(year) else emptyList(),
                 onProgress = { SyncEventLog.log("CVM: $it") },
                 onBytes = SyncProgress::onBytes,
             )
-            for ((cnpj, company) in yearData) {
+            for ((cnpj, company) in packageData) {
                 val target = partial[cnpj] ?: PartialCompany()
-                val merged = target.netIncome + company.netIncomeByYear.mapKeys { it.key.toString() }
+                val mergedAnnual = if (isItr) {
+                    target.netIncome
+                } else {
+                    target.netIncome + company.netIncomeByYear.mapKeys { it.key.toString() }
+                }
+                val mergedQuarters = target.quarters + company.quarterlyNetIncome
                 partial[cnpj] = target.copy(
-                    netIncome = merged,
+                    netIncome = mergedAnnual,
+                    quarters = mergedQuarters,
                     basis = company.basis.name,
                     equity = company.equityControllers ?: target.equity,
                     latestYear = company.latestYear ?: target.latestYear,
                 )
             }
 
-            val remaining = pendingYears.drop(1)
+            val remaining = pending.drop(1)
             writePartial(partial)
-            writePendingYears(remaining)
+            writePendingPackages(remaining)
 
             if (remaining.isEmpty()) {
                 applyToDatabase(tickers)
             } else {
-                SyncProgress.begin(label = "CVM · DFP $year concluído", pendingPackages = remaining.size)
+                SyncProgress.begin(
+                    label = "CVM · ${if (isItr) "ITR" else "DFP"} $year concluído",
+                    pendingPackages = remaining.size,
+                )
                 SyncScheduler.continueCvm(applicationContext)
                 Result.success()
             }
@@ -128,9 +141,11 @@ class CvmEarningsWorker(
         val withData = tickerToData.count { it.value.netIncomeByYear.isNotEmpty() }
         val controllers = tickerToData.count { it.value.basis == EarningsBasis.CONTROLLERS }
         val withEquity = tickerToData.count { it.value.equityControllers != null }
+        val withQuarters = tickerToData.count { it.value.quarterlyNetIncome.size >= 8 }
         SyncEventLog.log(
             "CVM: $updated ativos com histórico ($withData com série, " +
-                "$controllers na base controladores, $withEquity com PL)",
+                "$controllers na base controladores, $withEquity com PL, " +
+                "$withQuarters com 8+ trimestres)",
         )
         SyncProgress.finish()
         cleanup()
@@ -139,16 +154,25 @@ class CvmEarningsWorker(
 
     // --- scratch state -------------------------------------------------------
 
-    private fun readPendingYears(): List<Int> {
+    /**
+     * Packages still to download, in order: all DFPs first (they carry the annual
+     * history and the equity), then the ITRs (the quarterly series).
+     */
+    private fun readPendingPackages(): List<String> {
         val stored = runCatching {
-            json.decodeFromString<List<Int>>(pendingFile.readText())
-        }.getOrNull() ?: return HttpConfig.CVM_DFP_YEARS
-        // Keep only years still offered by the configured list (drops stale ones).
-        return stored.filter { it in HttpConfig.CVM_DFP_YEARS }
+            json.decodeFromString<List<String>>(pendingFile.readText())
+        }.getOrNull() ?: return defaultPackages()
+        val allowed = defaultPackages().toSet()
+        val filtered = stored.filter { it in allowed }
+        // A file written by an older version may hold bare year numbers.
+        return filtered.ifEmpty { defaultPackages() }
     }
 
-    private fun writePendingYears(years: List<Int>) {
-        runCatching { pendingFile.writeText(json.encodeToString(years)) }
+    private fun defaultPackages(): List<String> =
+        HttpConfig.CVM_DFP_YEARS.map { "D$it" } + HttpConfig.CVM_ITR_YEARS.map { "I$it" }
+
+    private fun writePendingPackages(packages: List<String>) {
+        runCatching { pendingFile.writeText(json.encodeToString(packages)) }
     }
 
     private fun readPartial(): MutableMap<String, PartialCompany> = runCatching {
@@ -192,6 +216,7 @@ class CvmEarningsWorker(
 @Serializable
 private data class PartialCompany(
     val netIncome: Map<String, Double> = emptyMap(),
+    val quarters: Map<String, Double> = emptyMap(),
     val basis: String = EarningsBasis.CONSOLIDATED.name,
     val equity: Double? = null,
     val latestYear: Int? = null,
@@ -206,6 +231,7 @@ private data class PartialCompany(
                 .getOrDefault(EarningsBasis.CONSOLIDATED),
             equityControllers = equity,
             latestYear = latestYear ?: byYear.keys.maxOrNull(),
+            quarterlyNetIncome = quarters,
         )
     }
 }

@@ -24,7 +24,14 @@ enum class LynchFlag(val code: String, val label: String) {
     HIGH_ROE("HIGH_ROE", "ROE atípico"),
 
     /** Non-positive equity. */
-    THIN_EQUITY("THIN_EQUITY", "PL negativo");
+    THIN_EQUITY("THIN_EQUITY", "PL negativo"),
+
+    /**
+     * Earnings jumped far beyond anything a business sustains: a base effect, an
+     * asset sale, a one-off reversal. The growth is real in the accounting sense,
+     * but using it to build a PEGY would flatter the company.
+     */
+    ATYPICAL_PROFIT("ATYPICAL_PROFIT", "Lucro atípico");
 
     companion object {
         /** Decodes the comma-separated codes stored in `fundamentals.alertFlags`. */

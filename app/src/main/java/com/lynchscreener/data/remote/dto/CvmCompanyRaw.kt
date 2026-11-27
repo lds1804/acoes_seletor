@@ -34,8 +34,14 @@ data class CvmCompanyRaw(
     val basis: EarningsBasis = EarningsBasis.CONSOLIDATED,
     val equityControllers: Double? = null,
     val latestYear: Int? = null,
+    /**
+     * Isolated quarterly net income keyed `YYYYQn` (e.g. `"2026Q3"`), from the ITR
+     * filings. Used to build a real trailing-twelve-month window.
+     */
+    val quarterlyNetIncome: Map<String, Double> = emptyMap(),
 ) {
-    val isEmpty: Boolean get() = netIncomeByYear.isEmpty()
+    val isEmpty: Boolean
+        get() = netIncomeByYear.isEmpty() && quarterlyNetIncome.isEmpty()
 
     /** Net income of the most recent fiscal year on file, if any. */
     val latestNetIncome: Double? get() = latestYear?.let { netIncomeByYear[it] }

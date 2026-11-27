@@ -31,7 +31,7 @@ class LynchScoringEngine {
          * Bump whenever the scoring rules change, so already persisted scores are
          * recomputed on the next launch ([com.lynchscreener.data.repository.AssetRepository.rescoreAll]).
          */
-        const val SCORING_ENGINE_VERSION = 3
+        const val SCORING_ENGINE_VERSION = 4
 
         // Non-financial sectors. Weights follow Lynch's GARP priorities: earnings
         // growth and the price paid for it first, then return on capital. P/VP and
@@ -89,6 +89,21 @@ class LynchScoringEngine {
         private const val PROFIT_DROP_PENALTY = -8.0
         private const val SEVERE_PROFIT_DROP = -0.30
         private const val SEVERE_PROFIT_DROP_PENALTY = -14.0
+
+        /**
+         * Growth ceiling used ONLY in the PEGY denominator.
+         *
+         * A 40-year-old company does not compound at 90% a year; when the series
+         * says so, it is a base effect (a loss year inflating the CAGR). Feeding
+         * that number into PEGY would hand out a near-zero PEGY and full marks.
+         * The displayed CAGR stays the real one — only the price/growth ratio is
+         * computed against the sustainable rate.
+         */
+        const val CAGR_CAP_FOR_PEGY = 0.30
+
+        /** YoY above this (or a 5-year CAGR above [ATYPICAL_CAGR]) raises the flag. */
+        const val ATYPICAL_YOY = 0.80
+        const val ATYPICAL_CAGR = 0.50
 
         private val FINANCIAL_EXCLUDED_KEYWORDS = listOf(
             "corretora de seguros", "corretoras de seguros", "insurance broker",
@@ -272,6 +287,10 @@ class LynchScoringEngine {
         if ((f.dividendYield ?: 0.0) > ATYPICAL_DY) flags += LynchFlag.ATYPICAL_DY
         if ((f.roe ?: 0.0) > ROE_OUTLIER) flags += LynchFlag.HIGH_ROE
         if (f.equity != null && f.equity <= 0.0) flags += LynchFlag.THIN_EQUITY
+        // Growth that no mature business sustains: read the number, do not trust it.
+        if ((f.earningsYoy ?: 0.0) > ATYPICAL_YOY || (growth ?: 0.0) > ATYPICAL_CAGR) {
+            flags += LynchFlag.ATYPICAL_PROFIT
+        }
         return flags
     }
 
@@ -369,10 +388,11 @@ class LynchScoringEngine {
     private fun computePegy(f: Financials, pe: Double?): Double? {
         if (pe == null || pe <= 0.0) return null
         val growth = f.earningsCagr5y ?: f.cagr5y ?: return null
-        // Yield is capped (see MAX_DY_FOR_PEGY) and growth is floored at zero: a
-        // shrinking company must not convert a big dividend into a low PEGY.
+        // Yield is capped (see MAX_DY_FOR_PEGY) and growth is floored at zero and
+        // capped at CAGR_CAP_FOR_PEGY: a shrinking company must not convert a big
+        // dividend into a low PEGY, and a base-effect CAGR must not either.
         val effectiveDy = (f.dividendYield ?: 0.0).coerceIn(0.0, MAX_DY_FOR_PEGY)
-        val effectiveGrowth = growth.coerceAtLeast(0.0)
+        val effectiveGrowth = growth.coerceIn(0.0, CAGR_CAP_FOR_PEGY)
         val denominator = (effectiveGrowth + effectiveDy) * 100.0
         if (denominator <= 0.0) return null
         return pe / denominator
@@ -668,11 +688,17 @@ class LynchScoringEngine {
      * |-------------|-----------------------------------------------------------|
      * | Turnaround  | série histórica ruim, mas recuperação forte nos últimos 12m |
      * | Value Trap  | P/L baixo + lucro encolhendo, ROE fraco ou prejuízo na série |
-     * | Fast Grower | CAGR ≥ 15% com PEGY ≤ 1.5 e série sem prejuízo             |
+     * | Fast Grower | não-cíclico, não-financeiro, CAGR ≥ 15%, PEGY ≤ 1.5, YoY > 0 |
+     * | Cyclical    | setor cíclico conhecido (commodities, siderurgia, petróleo…) |
      * | Asset Play  | P/VP < 1 + setor intensivo em ativos (ou caixa ≥ 25% do cap) |
      * | Stalwart    | CAGR ≥ 5% com ROE ≥ 10%                                   |
-     * | Cyclical    | setor cíclico conhecido                                   |
      * | Slow Grower | crescimento baixo, mas com dividendo sustentado            |
+     *
+     * Sector gates exist because a steel mill or an oil major can post a 40% CAGR
+     * over a commodity upcycle without becoming a "Fast Grower": the peak is the
+     * risk. Calling them that inflates the category and hides the cycle from the
+     * user. Likewise a bank growing 20% for five years is a Stalwart — its growth
+     * is levered balance-sheet expansion, not a scalable product.
      */
     private fun classify(f: Financials, pe: Double?, pegy: Double?): LynchCategory {
         val growth = f.earningsCagr5y ?: f.cagr5y
@@ -681,6 +707,8 @@ class LynchScoringEngine {
         val dy = f.dividendYield ?: 0.0
         val cheap = pe != null && pe in 0.0..10.0
         val yoy = f.earningsYoy
+        val cyclical = isCyclicalSector(f.sector)
+        val financial = isFinancialSector(f.sector, f.subsector)
 
         // Turnaround: the long record is still bad, but the last twelve months show
         // a real recovery. Checked BEFORE the value-trap rule — the two look alike
@@ -700,12 +728,19 @@ class LynchScoringEngine {
             }
         }
 
-        // Fast grower.
-        if (growth != null && growth >= 0.15 && (pegy == null || pegy <= 1.5) &&
-            f.earningsConsistent != false
+        // Fast grower — requires a sector where growth can compound AND the last
+        // twelve months confirming the trend (a negative YoY after five good years
+        // is the top of the cycle, not a growth story).
+        val confirmed = yoy == null || yoy > 0.0
+        if (!cyclical && !financial && growth != null && growth >= 0.15 &&
+            (pegy == null || pegy <= 1.5) && f.earningsConsistent != false && confirmed
         ) {
             return LynchCategory.FAST_GROWER
         }
+
+        // Cyclical — checked before Asset Play: a steel mill below book value in a
+        // trough is a cycle call, not a hidden-asset call.
+        if (cyclical) return LynchCategory.CYCLICAL
 
         // Asset play — only where hard assets are the thesis, or when cash alone
         // already covers a quarter of the market cap.
@@ -721,7 +756,9 @@ class LynchScoringEngine {
             return LynchCategory.STALWART
         }
 
-        if (isCyclicalSector(f.sector)) return LynchCategory.CYCLICAL
+        // Banks and insurers never fall through to Slow Grower just for lack of a
+        // dividend: what matters is that the ROE is real.
+        if (financial && (roe ?: 0.0) >= 0.12) return LynchCategory.STALWART
 
         // Slow grower: little growth, but the dividend is being paid for real.
         if (dy >= 0.04 && (roe ?: 0.0) >= 0.08 && f.earningsConsistent != false) {

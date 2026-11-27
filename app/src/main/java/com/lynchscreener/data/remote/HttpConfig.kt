@@ -41,6 +41,22 @@ object HttpConfig {
     // One-time download on Wi-Fi (~200 MB total); results are cached in Room.
     val CVM_DFP_YEARS = listOf(2025, 2024, 2023, 2022, 2021)
 
+    /**
+     * ITR (quarterly) packages.
+     *
+     * Needed for a real trailing-twelve-month figure: the DFP only carries closed
+     * fiscal years, so a YoY built from DFPs alone compares last year with the year
+     * before — which is exactly the wrong number to call "YoY TTM".
+     *
+     * Three packages yield 2024Q1..2026Q3, enough for the current TTM (last four
+     * quarters) and the previous one (the four before it).
+     */
+    const val CVM_ITR_ZIP = "https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC/ITR/DADOS/itr_cia_aberta_%d.zip"
+    const val CVM_ITR_DRE_CSV = "itr_cia_aberta_DRE_con_%d.csv"
+
+    /** ITR years to ingest, newest first (the current year carries the YTD data). */
+    val CVM_ITR_YEARS = listOf(2026, 2025, 2024)
+
     // NOTE: there is deliberately NO "net income account code" constant here.
     // The DRE account number changes with the filing regime (3.11 for
     // industrials, 3.09 for banks such as Itaú, 3.13 for insurers such as

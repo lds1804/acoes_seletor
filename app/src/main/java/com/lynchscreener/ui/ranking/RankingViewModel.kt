@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lynchscreener.data.repository.AssetRepository
 import com.lynchscreener.domain.Ranking
+import com.lynchscreener.domain.TickerDedup
 import com.lynchscreener.domain.model.Market
 import com.lynchscreener.domain.model.RankingItem
 import com.lynchscreener.domain.model.SectorStats
@@ -32,8 +33,11 @@ data class RankingFilters(
     val onlyNetCash: Boolean = false,
     val pegyBelowOne: Boolean = false,
     val hideNegativePe: Boolean = false,
+    /** ON/PN/Unit of the same company collapse into one line. On by default. */
+    val hideDuplicates: Boolean = true,
 ) {
-    val hasActiveFilters: Boolean get() = onlyNetCash || pegyBelowOne || hideNegativePe
+    val hasActiveFilters: Boolean
+        get() = onlyNetCash || pegyBelowOne || hideNegativePe || !hideDuplicates
 }
 
 data class RankingUiState(
@@ -60,6 +64,7 @@ class RankingViewModel(
     private val onlyNetCash = MutableStateFlow(false)
     private val pegyBelowOne = MutableStateFlow(false)
     private val hideNegativePe = MutableStateFlow(false)
+    private val hideDuplicates = MutableStateFlow(true)
 
     private val companies = market.flatMapLatest { repository.observeRanked(it) }
 
@@ -67,9 +72,12 @@ class RankingViewModel(
     val syncStatus: StateFlow<SyncStatus> =
         syncMonitor.status.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncStatus())
 
-    private val filters = combine(onlyNetCash, pegyBelowOne, hideNegativePe) { a, b, c ->
-        RankingFilters(a, b, c)
-    }
+    private val filters = combine(
+        onlyNetCash,
+        pegyBelowOne,
+        hideNegativePe,
+        hideDuplicates,
+    ) { a, b, c, d -> RankingFilters(a, b, c, d) }
 
     private val inputs = combine(market, viewMode, query, sortBy, filters) { m, vm, q, s, f ->
         Input(m, vm, q, s, f)
@@ -89,6 +97,9 @@ class RankingViewModel(
         }
         if (input.filters.hideNegativePe) {
             filtered = filtered.filter { it.company.pe == null || it.company.pe > 0.0 }
+        }
+        if (input.filters.hideDuplicates) {
+            filtered = TickerDedup.collapseItems(filtered)
         }
         RankingUiState(
             market = input.market,
@@ -128,6 +139,10 @@ class RankingViewModel(
 
     fun setHideNegativePe(value: Boolean) {
         hideNegativePe.value = value
+    }
+
+    fun setHideDuplicates(value: Boolean) {
+        hideDuplicates.value = value
     }
 
     private data class Input(
